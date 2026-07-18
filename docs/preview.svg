@@ -1,0 +1,202 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 660" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <!-- ============ Background peta ============ -->
+  <rect width="960" height="660" fill="#e9eee9"/>
+  <rect width="960" height="660" fill="url(#vign)"/>
+  <defs>
+    <radialGradient id="vign" cx="42%" cy="40%" r="75%">
+      <stop offset="0%" stop-color="#eef2ec" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#c9d3c8" stop-opacity="0.5"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Parcels (patchwork bidang tanah) -->
+  <g stroke="#b7c4ba" stroke-width="1.4" fill="#f4f7f4" fill-opacity="0.8">
+    <polygon points="40,70 170,55 185,175 55,190"/>
+    <polygon points="170,55 300,60 310,180 185,175"/>
+    <polygon points="300,60 430,50 445,170 310,180"/>
+    <polygon points="430,50 560,65 565,185 445,170"/>
+    <polygon points="55,190 185,175 195,300 65,315"/>
+    <polygon points="185,175 310,180 320,300 195,300"/>
+    <polygon points="310,180 445,170 455,295 320,300"/>
+    <polygon points="445,170 565,185 570,305 455,295"/>
+    <polygon points="65,315 195,300 205,440 80,455"/>
+    <polygon points="195,300 320,300 330,440 205,440"/>
+    <polygon points="320,300 455,295 465,430 330,440"/>
+    <polygon points="455,295 570,305 578,445 465,430"/>
+    <polygon points="80,455 205,440 215,585 95,600"/>
+    <polygon points="205,440 330,440 340,585 215,585"/>
+    <polygon points="330,440 465,430 475,580 340,585"/>
+  </g>
+
+  <!-- Road -->
+  <path d="M20,255 C180,230 360,320 620,360" fill="none" stroke="#d7ddd6" stroke-width="12" stroke-linecap="round"/>
+  <path d="M20,255 C180,230 360,320 620,360" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round"/>
+
+  <!-- Search box (fitur: kata pencarian terekam) -->
+  <g transform="translate(30,24)">
+    <rect width="232" height="34" rx="9" fill="#ffffff" stroke="#00000014"/>
+    <rect x="-0" y="0" width="232" height="34" rx="9" fill="#000" opacity="0.05" transform="translate(0,3)"/>
+    <rect width="232" height="34" rx="9" fill="#ffffff" stroke="#00000014"/>
+    <circle cx="18" cy="17" r="5.5" fill="none" stroke="#8a978c" stroke-width="2"/>
+    <line x1="22" y1="21" x2="27" y2="26" stroke="#8a978c" stroke-width="2" stroke-linecap="round"/>
+    <text x="38" y="21" font-size="12.5" fill="#7c877e">Cari NIB / Hak — mis. "Sleman"</text>
+  </g>
+
+  <!-- ============ Pins pada bidang ============ -->
+  <!-- helper look: halo + dot(white stroke) + NIB label -->
+  <g font-size="10" font-weight="700" text-anchor="middle">
+    <!-- green -->
+    <g transform="translate(245,120)">
+      <rect x="-23" y="-30" width="46" height="17" rx="5" fill="#ffffff" fill-opacity="0.92" stroke="#00000022"/>
+      <text y="-18" fill="#333">07321</text>
+      <circle r="13" fill="#1a9850" opacity="0.22"/>
+      <circle r="6" fill="#1a9850" stroke="#fff" stroke-width="2.5"/>
+    </g>
+    <g transform="translate(255,240)">
+      <rect x="-23" y="-30" width="46" height="17" rx="5" fill="#ffffff" fill-opacity="0.92" stroke="#00000022"/>
+      <text y="-18" fill="#333">07318</text>
+      <circle r="13" fill="#1a9850" opacity="0.22"/>
+      <circle r="6" fill="#1a9850" stroke="#fff" stroke-width="2.5"/>
+    </g>
+    <g transform="translate(262,375)">
+      <rect x="-23" y="-30" width="46" height="17" rx="5" fill="#ffffff" fill-opacity="0.92" stroke="#00000022"/>
+      <text y="-18" fill="#333">07290</text>
+      <circle r="13" fill="#1a9850" opacity="0.22"/>
+      <circle r="6" fill="#1a9850" stroke="#fff" stroke-width="2.5"/>
+    </g>
+    <g transform="translate(272,515)">
+      <rect x="-23" y="-30" width="46" height="17" rx="5" fill="#ffffff" fill-opacity="0.92" stroke="#00000022"/>
+      <text y="-18" fill="#333">07305</text>
+      <circle r="13" fill="#1a9850" opacity="0.22"/>
+      <circle r="6" fill="#1a9850" stroke="#fff" stroke-width="2.5"/>
+    </g>
+    <!-- orange -->
+    <g transform="translate(378,112)">
+      <rect x="-23" y="-30" width="46" height="17" rx="5" fill="#ffffff" fill-opacity="0.92" stroke="#00000022"/>
+      <text y="-18" fill="#333">05120</text>
+      <circle r="13" fill="#e6a010" opacity="0.22"/>
+      <circle r="6" fill="#e6a010" stroke="#fff" stroke-width="2.5"/>
+    </g>
+    <g transform="translate(398,368)">
+      <rect x="-23" y="-30" width="46" height="17" rx="5" fill="#ffffff" fill-opacity="0.92" stroke="#00000022"/>
+      <text y="-18" fill="#333">05088</text>
+      <circle r="13" fill="#e6a010" opacity="0.22"/>
+      <circle r="6" fill="#e6a010" stroke="#fff" stroke-width="2.5"/>
+    </g>
+    <!-- gray -->
+    <g transform="translate(510,240)">
+      <circle r="13" fill="#9e9e9e" opacity="0.22"/>
+      <circle r="6" fill="#9e9e9e" stroke="#fff" stroke-width="2.5"/>
+    </g>
+  </g>
+
+  <!-- ============ PANEL Extension (setia dengan renderPanel) ============ -->
+  <g transform="translate(642,124)">
+    <!-- fake soft shadow -->
+    <rect x="0" y="9" width="290" height="508" rx="16" fill="#0b1a10" opacity="0.14"/>
+    <rect x="0" y="4" width="290" height="508" rx="15" fill="#0b1a10" opacity="0.08"/>
+    <rect width="290" height="508" rx="14" fill="#ffffff" stroke="#d9d9d9"/>
+
+    <clipPath id="pc"><rect width="290" height="508" rx="14"/></clipPath>
+    <g clip-path="url(#pc)">
+      <!-- header -->
+      <rect width="290" height="40" fill="#0a7d3c"/>
+      <!-- logo marker -->
+      <g transform="translate(18,20)">
+        <path d="M0,-8 C4.4,-8 8,-4.6 8,-0.4 C8,4.4 0,11 0,11 C0,11 -8,4.4 -8,-0.4 C-8,-4.6 -4.4,-8 0,-8 Z" fill="#ffffff"/>
+        <circle r="2.8" fill="#0a7d3c"/>
+      </g>
+      <text x="36" y="25" fill="#ffffff" font-size="13" font-weight="700">BHUMI Recorder</text>
+      <text x="272" y="26" fill="#ffffff" font-size="18">–</text>
+
+      <!-- recording status -->
+      <circle cx="17" cy="55" r="9" fill="#e11" opacity="0.18"/>
+      <circle cx="17" cy="55" r="5" fill="#e11"/>
+      <text x="30" y="59" font-size="12.5" font-weight="600" fill="#1b1b1b">Sedang merekam</text>
+      <text x="278" y="59" font-size="12" font-weight="600" fill="#0a7d3c" text-anchor="end">Jeda</text>
+
+      <!-- map pin status box -->
+      <rect x="12" y="68" width="266" height="40" rx="8" fill="#eaf7ee"/>
+      <g transform="translate(25,88)">
+        <path d="M0,-6 C3.3,-6 6,-3.4 6,-0.3 C6,3.3 0,8 0,8 C0,8 -6,3.3 -6,-0.3 C-6,-3.4 -3.3,-6 0,-6 Z" fill="#0a7d3c"/>
+        <circle r="2" fill="#eaf7ee"/>
+      </g>
+      <text x="38" y="84" font-size="10.5" fill="#0a7d3c" font-weight="600">Penanda AKTIF di peta —</text>
+      <text x="38" y="98" font-size="10.5" fill="#0a7d3c">bidang direkam ditandai titik berwarna.</text>
+
+      <!-- see-all button -->
+      <rect x="12" y="118" width="266" height="32" rx="8" fill="#0a7d3c"/>
+      <g transform="translate(96,134)">
+        <circle cx="0" cy="0" r="5" fill="none" stroke="#fff" stroke-width="2"/>
+        <line x1="3.6" y1="3.6" x2="8" y2="8" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+      </g>
+      <text x="112" y="138" font-size="12" font-weight="600" fill="#ffffff">Lihat semua titik di peta</text>
+
+      <!-- big number -->
+      <text x="12" y="184" font-size="28" font-weight="800" fill="#1b1b1b">24</text>
+      <text x="52" y="184" font-size="12" fill="#666">bidang terekam</text>
+
+      <!-- category grid -->
+      <g>
+        <rect x="12" y="196" width="84" height="42" rx="8" fill="#1a9850" opacity="0.10"/>
+        <rect x="103" y="196" width="84" height="42" rx="8" fill="#e6a010" opacity="0.10"/>
+        <rect x="194" y="196" width="84" height="42" rx="8" fill="#9e9e9e" opacity="0.16"/>
+        <text x="54" y="219" font-size="16" font-weight="800" fill="#1a9850" text-anchor="middle">18</text>
+        <text x="145" y="219" font-size="16" font-weight="800" fill="#e6a010" text-anchor="middle">5</text>
+        <text x="236" y="219" font-size="16" font-weight="800" fill="#6b6b6b" text-anchor="middle">1</text>
+        <text x="54" y="232" font-size="9" fill="#555" text-anchor="middle">Hak Milik</text>
+        <text x="145" y="232" font-size="9" fill="#555" text-anchor="middle">Hak lain</text>
+        <text x="236" y="232" font-size="9" fill="#555" text-anchor="middle">? / kosong</text>
+      </g>
+
+      <!-- breakdown per jenis hak -->
+      <text x="12" y="256" font-size="10" fill="#888">Rincian per jenis hak</text>
+      <rect x="12" y="262" width="266" height="96" rx="8" fill="#ffffff" stroke="#eeeeee"/>
+      <g font-size="11">
+        <!-- row 1 -->
+        <circle cx="24" cy="274" r="4.5" fill="#1a9850"/>
+        <text x="36" y="278" fill="#333">Hak Milik</text>
+        <text x="266" y="278" font-size="12" font-weight="800" fill="#222" text-anchor="end">18</text>
+        <line x1="12" y1="286" x2="278" y2="286" stroke="#f2f2f2"/>
+        <!-- row 2 -->
+        <circle cx="24" cy="298" r="4.5" fill="#e6a010"/>
+        <text x="36" y="302" fill="#333">Hak Guna Bangunan</text>
+        <text x="266" y="302" font-size="12" font-weight="800" fill="#222" text-anchor="end">4</text>
+        <line x1="12" y1="310" x2="278" y2="310" stroke="#f2f2f2"/>
+        <!-- row 3 -->
+        <circle cx="24" cy="322" r="4.5" fill="#e6a010"/>
+        <text x="36" y="326" fill="#333">Hak Pakai</text>
+        <text x="266" y="326" font-size="12" font-weight="800" fill="#222" text-anchor="end">1</text>
+        <line x1="12" y1="334" x2="278" y2="334" stroke="#f2f2f2"/>
+        <!-- row 4 -->
+        <circle cx="24" cy="346" r="4.5" fill="#9e9e9e"/>
+        <text x="36" y="350" fill="#333">Tidak diketahui</text>
+        <text x="266" y="350" font-size="12" font-weight="800" fill="#222" text-anchor="end">1</text>
+      </g>
+
+      <!-- daftar bidang -->
+      <text x="12" y="378" font-size="11" font-weight="600" fill="#0a7d3c">&#9656; Daftar bidang (24)</text>
+      <!-- pencarian terakhir -->
+      <text x="12" y="398" font-size="11" fill="#555">Pencarian terakhir: Sleman</text>
+
+      <!-- buttons row 1 -->
+      <rect x="12" y="408" width="128" height="32" rx="8" fill="#0a7d3c"/>
+      <rect x="150" y="408" width="128" height="32" rx="8" fill="#0a5a7d"/>
+      <g stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <g transform="translate(46,424)"><path d="M0,-5 V2"/><path d="M-3.2,-0.6 L0,2.6 L3.2,-0.6"/><path d="M-4.5,5 H4.5"/></g>
+        <g transform="translate(182,424)"><path d="M0,-5 V2"/><path d="M-3.2,-0.6 L0,2.6 L3.2,-0.6"/><path d="M-4.5,5 H4.5"/></g>
+      </g>
+      <text x="62" y="428" font-size="12" font-weight="600" fill="#fff">GeoJSON</text>
+      <text x="198" y="428" font-size="12" font-weight="600" fill="#fff">CSV</text>
+
+      <!-- buttons row 2 -->
+      <rect x="12" y="450" width="128" height="32" rx="8" fill="#555555"/>
+      <rect x="150" y="450" width="128" height="32" rx="8" fill="#b33333"/>
+      <text x="76" y="470" font-size="12" font-weight="600" fill="#fff" text-anchor="middle">Debug: ON</text>
+      <text x="214" y="470" font-size="12" font-weight="600" fill="#fff" text-anchor="middle">Hapus</text>
+
+      <!-- footer -->
+      <text x="145" y="497" font-size="9.5" fill="#999" text-anchor="middle">Data BHUMI ATR/BPN • tanpa nama pemilik</text>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,36 @@
+# ── Claude Code / agen (jangan di-commit) ──────────────────────────
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+memory/
+MEMORY.md
+.aider*
+
+# ── macOS ──────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# ── Editor / IDE ───────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Node / tooling (kalau nanti ditambahkan) ───────────────────────
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── Log & berkas sementara ─────────────────────────────────────────
+*.log
+tmp/
+scratch/
+
+# ── Data hasil rekaman lokal (punya masing-masing pengguna) ────────
+bhumi-bidang.geojson
+bhumi-bidang.csv

@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <!-- background map -->
+  <rect width="960" height="560" fill="#dfe7ee"/>
+  <g stroke="#c2ccd6" stroke-width="1.3" fill="#eef3f8" fill-opacity="0.7">
+    <polygon points="120,60 300,45 320,190 150,205"/>
+    <polygon points="300,45 500,55 515,200 320,190"/>
+    <polygon points="500,55 700,45 715,195 515,200"/>
+    <polygon points="700,45 900,60 905,205 715,195"/>
+    <polygon points="150,205 320,190 335,360 175,375"/>
+    <polygon points="320,190 515,200 528,360 335,360"/>
+    <polygon points="515,200 715,195 725,355 528,360"/>
+    <polygon points="715,195 905,205 912,360 725,355"/>
+    <polygon points="175,375 335,360 350,520 200,535"/>
+    <polygon points="335,360 528,360 540,520 350,520"/>
+    <polygon points="528,360 725,355 735,515 540,520"/>
+  </g>
+
+  <!-- pins with permanent NIB labels -->
+  <g font-size="10.5" font-weight="700" text-anchor="middle">
+    <g transform="translate(410,120)">
+      <rect x="-24" y="-31" width="48" height="17" rx="5" fill="#ffffff" fill-opacity="0.95" stroke="#00000022"/>
+      <text y="-19" fill="#333">07321</text>
+      <circle r="7" fill="#1a9850" stroke="#fff" stroke-width="2"/>
+    </g>
+    <g transform="translate(600,120)">
+      <rect x="-24" y="-31" width="48" height="17" rx="5" fill="#ffffff" fill-opacity="0.95" stroke="#00000022"/>
+      <text y="-19" fill="#333">05120</text>
+      <circle r="7" fill="#e6a010" stroke="#fff" stroke-width="2"/>
+    </g>
+    <g transform="translate(430,280)">
+      <rect x="-24" y="-31" width="48" height="17" rx="5" fill="#ffffff" fill-opacity="0.95" stroke="#00000022"/>
+      <text y="-19" fill="#333">07318</text>
+      <circle r="7" fill="#1a9850" stroke="#fff" stroke-width="2"/>
+    </g>
+    <g transform="translate(630,280)">
+      <circle r="7" fill="#9e9e9e" stroke="#fff" stroke-width="2"/>
+    </g>
+    <g transform="translate(445,445)">
+      <rect x="-24" y="-31" width="48" height="17" rx="5" fill="#ffffff" fill-opacity="0.95" stroke="#00000022"/>
+      <text y="-19" fill="#333">07305</text>
+      <circle r="7" fill="#1a9850" stroke="#fff" stroke-width="2"/>
+    </g>
+  </g>
+
+  <!-- controls card (kiri atas) -->
+  <g transform="translate(28,28)">
+    <rect x="0" y="8" width="300" height="212" rx="16" fill="#0b1a10" opacity="0.12"/>
+    <rect width="300" height="212" rx="14" fill="#ffffff"/>
+    <text x="18" y="34" font-size="15" font-weight="800" fill="#1b1b1b">Bidang Tanah BHUMI</text>
+    <text x="18" y="54" font-size="12" fill="#667">Buka file .geojson hasil rekaman.</text>
+
+    <!-- dropzone -->
+    <rect x="18" y="66" width="264" height="54" rx="12" fill="#eaf7ee" stroke="#1a9850" stroke-width="2" stroke-dasharray="6 5"/>
+    <text x="150" y="90" font-size="12.5" font-weight="700" fill="#0a7d3c" text-anchor="middle">Klik untuk pilih file</text>
+    <text x="150" y="107" font-size="11.5" fill="#4a8a63" text-anchor="middle">atau seret bhumi-bidang.geojson ke sini</text>
+
+    <!-- total -->
+    <text x="18" y="150" font-size="26" font-weight="800" fill="#1b1b1b">24</text>
+    <text x="58" y="150" font-size="12" fill="#667">bidang</text>
+
+    <!-- stat tiles -->
+    <rect x="18" y="162" width="84" height="38" rx="10" fill="#1a9850" opacity="0.12"/>
+    <rect x="108" y="162" width="84" height="38" rx="10" fill="#e6a010" opacity="0.12"/>
+    <rect x="198" y="162" width="84" height="38" rx="10" fill="#9e9e9e" opacity="0.16"/>
+    <text x="60" y="182" font-size="18" font-weight="800" fill="#1a9850" text-anchor="middle">18</text>
+    <text x="150" y="182" font-size="18" font-weight="800" fill="#e6a010" text-anchor="middle">5</text>
+    <text x="240" y="182" font-size="18" font-weight="800" fill="#6b6b6b" text-anchor="middle">1</text>
+    <text x="60" y="194" font-size="9" fill="#556" text-anchor="middle">Hak Milik</text>
+    <text x="150" y="194" font-size="9" fill="#556" text-anchor="middle">Hak lain</text>
+    <text x="240" y="194" font-size="9" fill="#556" text-anchor="middle">? / kosong</text>
+  </g>
+
+  <!-- legend (kiri bawah) -->
+  <g transform="translate(28,470)">
+    <rect x="0" y="6" width="260" height="70" rx="14" fill="#0b1a10" opacity="0.1"/>
+    <rect width="260" height="70" rx="12" fill="#ffffff"/>
+    <g font-size="12" fill="#333">
+      <rect x="16" y="15" width="14" height="14" rx="3" fill="#1a9850"/>
+      <text x="40" y="26">Hak Milik</text>
+      <rect x="16" y="35" width="14" height="14" rx="3" fill="#e6a010"/>
+      <text x="40" y="46">Hak lain (HGB/HGU/Pakai/dll)</text>
+      <rect x="16" y="55" width="14" height="14" rx="3" fill="#9e9e9e"/>
+      <text x="40" y="66">Tidak diketahui / kosong</text>
+    </g>
+  </g>
+</svg>
