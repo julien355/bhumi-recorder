@@ -53,7 +53,7 @@ These upstream illustrations use example data. Their embedded labels remain in I
 
 The recorder exports KML and KMZ directly, alongside GeoJSON and CSV. The included [Google Earth converter](converter.html) also converts previously exported files. Both preserve geometry supplied by the source, but the recorder may save only a point or no geometry. Check for `Polygon` or `MultiPolygon` before expecting parcel boundaries. Converting a point to KML does not create a boundary.
 
-Merging duplicate records still prefers existing geometry. A previously recorded point can therefore remain even if richer geometry arrives later.
+Since version 1.7.0 the recorder also tries to capture the parcel polygon after each click: from the plaintext the app parses after `getPersil`, from GeoJSON sources on the map (e.g. a selection layer), and from `queryRenderedFeatures` at the click point. The first polygon that contains the click point is attached to the record (`geom_source` shows where it came from). A stored point is upgraded to a polygon on the next click of that parcel; an existing polygon is never overwritten. Polygons taken from vector tiles may be clipped at tile edges or simplified at low zoom, so zoom in on the parcel before clicking. The panel shows how many records have a polygon. If it stays at 0, run `__BHUMI_REC__.probe()` with a parcel selected and send the output.
 
 The upstream README describes the viewer as offline. Treat this as local-file use: external map tiles or libraries may still require connectivity. The browser also contacts BHUMI during normal browsing; local recording does not mean the whole browsing session is offline.
 
@@ -132,7 +132,7 @@ CSV accepts comma, semicolon or tab delimiters, quoted fields, and a UTF-8 BOM. 
 
 Coordinates must already be WGS 84 longitude/latitude degrees. Declared legacy GeoJSON CRS objects are rejected rather than silently reprojected. Invalid records are skipped and reported; files over 50 MB are rejected. Numerical range checks cannot detect every wrongly assigned CRS, and the converter does not validate polygon topology. Verify placement and parcel counts in Google Earth.
 
-Developer checks: run `node test-recorder.cjs` and `node test-converter.cjs`. The recorder check exercises the panel's download handlers, verifies KML/KMZ against the converter, checks missing/invalid geometry, and confirms storage and existing exports remain unchanged. The converter check creates `test-output.kml` and `test-output.kmz` alongside the converter for inspection. Its checks cover polygon holes, mixed geometry, XML escaping, CSV delimiters/quoting and invalid coordinates. The converter's serialization core is embedded in the userscript to keep installation to one file; keep both copies in sync when changing export behavior.
+Developer checks: run `node test-recorder.cjs`, `node test-polygon.cjs` and `node test-converter.cjs`. The recorder check exercises the panel's download handlers, verifies KML/KMZ against the converter, checks missing/invalid geometry, and confirms storage and existing exports remain unchanged. The converter check creates `test-output.kml` and `test-output.kmz` alongside the converter for inspection. Its checks cover polygon holes, mixed geometry, XML escaping, CSV delimiters/quoting and invalid coordinates. The converter's serialization core is embedded in the userscript to keep installation to one file; keep both copies in sync when changing export behavior.
 
 ## Exported fields
 
@@ -171,6 +171,7 @@ __BHUMI_REC__.count()      // Counts: total, milik, lain, unknown
 __BHUMI_REC__.breakdown()  // Breakdown by right type
 __BHUMI_REC__.geojson()    // GeoJSON string
 __BHUMI_REC__.cleanup()    // Remove records without NIB and merge duplicates
+__BHUMI_REC__.probe()      // Diagnose where the polygon lives (sources, layers, rendered features)
 __BHUMI_REC__.clear()      // Delete all recorded data
 ```
 
