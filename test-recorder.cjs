@@ -9,8 +9,8 @@ vm.runInNewContext(converterScript, converterContext);
 const converter = converterContext.module.exports;
 
 // Run the complete userscript with a small browser stub, including panel creation
-// and the actual download click handlers. No network calls or parcel mutations.
-function recorder(features) {
+// and the actual download click handlers. No network calls or real parcel data.
+function recorder(features, options = {}) {
   const downloads = [], alerts = [], writes = [], blobs = new Map();
   class Element {
     constructor(tag) { this.tagName = tag.toUpperCase(); this.children = []; this.style = {}; this.events = {}; this.textContent = ''; }
@@ -40,17 +40,23 @@ function recorder(features) {
   function XMLHttpRequest() {}
   XMLHttpRequest.prototype.open = XMLHttpRequest.prototype.send = () => {};
   const window = {};
-  vm.runInNewContext(script, {
+  const timers = [];
+  if (options.Map) window.maplibregl = { Map: options.Map };
+  const context = vm.createContext({
     window, document, localStorage, XMLHttpRequest, TextEncoder, Blob, console,
     MutationObserver: class { observe() {} },
-    setTimeout() {}, setInterval() {}, clearInterval() {},
+    setTimeout(fn) { timers.push(fn); return timers.length; }, setInterval() {}, clearInterval() {},
     alert: message => alerts.push(message),
     URL: { createObjectURL: blob => { const url = 'blob:' + blobs.size; blobs.set(url, blob); return url; }, revokeObjectURL() {} }
   });
+  vm.runInContext(script, context);
   return {
     button: format => document.documentElement.all().find(e => e.tagName === 'BUTTON' && e.textContent.endsWith(' ' + format)),
     status: () => document.documentElement.all().find(e => e.role === 'status').textContent,
-    downloads, alerts, writes, api: window.__BHUMI_REC__
+    downloads, alerts, writes, api: window.__BHUMI_REC__,
+    parse: vm.runInContext('JSON.parse', context),
+    flush: () => { for (const fn of timers.splice(0)) fn(); },
+    map: options.Map ? new window.maplibregl.Map() : null
   };
 }
 
@@ -75,6 +81,87 @@ const features = geometries.map((geometry, i) => ({
 }));
 
 async function main() {
+  // BHUMI parses decrypted getPersil JSON after Response.json() has returned.
+  // Exercise that application path, not private recorder functions.
+  const captured = recorder([]);
+  const decoded = geometry => JSON.stringify({ type: 'FeatureCollection', features: [
+    { type: 'Feature', properties: { nib: 'PLOT-1', tipehak: 'Hak Milik' }, geometry }
+  ] });
+  const selected = { type: 'Polygon', coordinates: [
+    [[116,-8],[116.4,-8],[116.3,-7.6],[116.1,-7.8],[116,-8]],
+    [[116.15,-7.9],[116.2,-7.9],[116.2,-7.85],[116.15,-7.9]]
+  ] };
+  captured.parse(decoded({ type: 'Point', coordinates: [116.2,-7.9] }));
+  captured.parse(decoded(selected));
+  assert.deepEqual(JSON.parse(captured.api.geojson()).features[0].geometry, selected,
+    'Decoded irregular parcel replaces a point, retaining holes and vertices');
+  captured.parse(decoded({ type: 'Point', coordinates: [116.2,-7.9] }));
+  captured.parse(decoded({ type: 'Polygon', coordinates: [[[1,1],[1,1],[1,1]]] }));
+  assert.deepEqual(JSON.parse(captured.api.geojson()).features[0].geometry, selected,
+    'Later attribute/point/invalid polygon responses cannot downgrade a boundary');
+  assert.equal(captured.api.count().total, 1);
+  captured.flush();
+  captured.button('KML').click();
+  captured.button('KMZ').click();
+  const capturedKml = await captured.downloads[0].blob.text();
+  assert.match(capturedKml, /<Polygon>/);
+  assert.match(capturedKml, /<innerBoundaryIs>/);
+  assert.match(capturedKml, /116.3,-7.6,0/);
+  assert.ok(!capturedKml.includes('<Point>'));
+  assert.equal(converter.parse(captured.api.csv(), 'parcels.csv').totals.polygons, 1,
+    'CSV retains polygon geometry for conversion too');
+  assert.equal(captured.parse('{"value":2}', (key, value) => key === 'value' ? value * 3 : value).value, 6);
+  assert.throws(() => captured.parse('{bad json'), /JSON/);
+  const writeCount = captured.writes.length;
+  captured.parse(captured.api.geojson());
+  captured.parse(JSON.stringify({ type: 'FeatureCollection', features: [
+    { type: 'Feature', properties: { name: 'other layer' }, geometry: selected }
+  ] }));
+  assert.equal(captured.writes.length, writeCount, 'Own exports and unrelated layers are ignored');
+
+  const legacy = recorder([{ type: 'Feature', properties: { nib: 'PLOT-1', luas: '50', source: 'peta' },
+    geometry: { type: 'Polygon', coordinates: [[[116,-8],[117,-8],[117,-7],[116,-7],[116,-8]]] } }]);
+  legacy.parse(decoded(selected));
+  assert.deepEqual(JSON.parse(legacy.api.geojson()).features[0].geometry, selected,
+    'New parcel vertices replace an older box-shaped polygon on re-selection');
+  assert.equal(JSON.parse(legacy.api.geojson()).features[0].properties.luas, '50');
+  const multi = { type: 'MultiPolygon', coordinates: [selected.coordinates, [
+    [[116.6,-8],[116.8,-8],[116.7,-7.9],[116.6,-8]]
+  ]] };
+  legacy.parse(decoded(multi));
+  assert.deepEqual(JSON.parse(legacy.api.geojson()).features[0].geometry, multi);
+  assert.equal(legacy.api.count().total, 1, 'Repeated selection upgrades the existing saved NIB');
+
+  class MapStub {
+    constructor() { this.sources = {}; this.events = {}; }
+    on(name, ...args) { (this.events[name] ||= []).push(args.at(-1)); }
+    emit(name, event) { for (const fn of this.events[name] || []) fn(event); }
+    getSource(id) { return this.sources[id]; }
+    isStyleLoaded() { return false; }
+    once() {}
+  }
+  const highlight = recorder([], { Map: MapStub });
+  highlight.map.sources.highlight = { type: 'geojson', serialize: () => ({ data: JSON.parse(decoded(selected)) }) };
+  highlight.map.emit('sourcedata', { sourceId: 'highlight' });
+  assert.deepEqual(JSON.parse(highlight.api.geojson()).features[0].geometry, selected);
+  const asyncHighlight = recorder([], { Map: MapStub });
+  asyncHighlight.map.sources.highlight = { type: 'geojson', getData: async () => JSON.parse(decoded(selected)) };
+  asyncHighlight.map.emit('sourcedata', { sourceId: 'highlight' });
+  await new Promise(setImmediate);
+  assert.equal(asyncHighlight.api.count().total, 1);
+  const stale = recorder([], { Map: MapStub });
+  let resolveHighlight;
+  stale.map.sources.highlight = { type: 'geojson', getData: () => new Promise(resolve => { resolveHighlight = resolve; }) };
+  stale.map.emit('sourcedata', { sourceId: 'highlight' });
+  stale.api.clear();
+  resolveHighlight(JSON.parse(decoded(selected)));
+  await new Promise(setImmediate);
+  assert.equal(stale.api.count().total, 0, 'A delayed source read cannot restore cleared records');
+  const raster = recorder([], { Map: MapStub });
+  raster.map.sources.highlight = { type: 'raster', serialize: () => ({ data: JSON.parse(decoded(selected)) }) };
+  raster.map.emit('sourcedata', { sourceId: 'highlight' });
+  assert.equal(raster.api.count().total, 0, 'Raster image extents must not become parcel boxes');
+
   const app = recorder(features);
   const before = app.api.geojson();
   app.button('KML').click();
@@ -123,6 +210,6 @@ async function main() {
   assert.equal(await app.downloads[2].blob.text(), before);
   assert.equal(app.downloads[3].filename, 'bhumi-bidang.csv');
   assert.deepEqual(Buffer.from(await app.downloads[3].blob.arrayBuffer()), Buffer.from('\ufeff' + app.api.csv()));
-  console.log('Passed: recorder buttons, KML/KMZ downloads, all geometry types, holes, UTF-8/XML escaping, invalid/empty records, unchanged storage and existing exports.');
+  console.log('Passed: decoded parcel capture, point/box upgrades, holes/multipolygons, GeoJSON highlights, raster exclusion, CSV geometry, recorder buttons, KML/KMZ downloads, UTF-8/XML escaping and unchanged export storage.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

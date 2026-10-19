@@ -51,9 +51,11 @@ These upstream illustrations use example data. Their embedded labels remain in I
 
 ### Polygon and Google Earth clarification
 
-The recorder exports KML and KMZ directly, alongside GeoJSON and CSV. The included [Google Earth converter](converter.html) also converts previously exported files. Both preserve geometry supplied by the source, but the recorder may save only a point or no geometry. Check for `Polygon` or `MultiPolygon` before expecting parcel boundaries. Converting a point to KML does not create a boundary.
+The recorder exports KML and KMZ directly, alongside GeoJSON and CSV. The included [Google Earth converter](converter.html) also converts previously exported files. Version 1.7.0 observes parcel GeoJSON after BHUMI decodes its responses, and reads the original `highlight` GeoJSON source when available. It preserves the supplied polygon vertices, holes and multipolygons, without substituting map bounds or tile boxes. The panel shows how many records contain polygon boundaries.
 
-Merging duplicate records still prefers existing geometry. A previously recorded point can therefore remain even if richer geometry arrives later.
+Duplicate records now upgrade from points to polygons. After updating the Tampermonkey script and reloading BHUMI, click previously recorded plots again to capture any available boundaries. Later point-only responses do not replace a saved polygon. Existing exports cannot recover vertices that were never recorded.
+
+Some BHUMI parcel highlights are **WMS raster images**, including selections rendered through `/expapi/umum/wms?layer=Persil`. A visible outline in an image does not mean the browser has its vector coordinates. If decoded parcel data and the GeoJSON highlight source both lack geometry, the recorder still has only a point or no geometry. It does not turn the image extent or response `bbox` into a parcel polygon. Check the panel's boundary count before exporting.
 
 The upstream README describes the viewer as offline. Treat this as local-file use: external map tiles or libraries may still require connectivity. The browser also contacts BHUMI during normal browsing; local recording does not mean the whole browsing session is offline.
 
@@ -126,13 +128,13 @@ The converter is self-contained and runs offline without sending your files anyw
 
 Supported GeoJSON geometry: Point, MultiPoint, LineString, MultiLineString, Polygon, MultiPolygon and GeometryCollection. Polygon holes and parcel grouping are retained; unclosed rings are closed and winding is normalised. Features are clamped to the ground, so input altitudes are intentionally not retained. All properties become KML ExtendedData.
 
-CSV accepts comma, semicolon or tab delimiters, quoted fields, and a UTF-8 BOM. Provide `lon/lat`, `longitude/latitude`, or `lng/lat` for points. A `geometry` column may contain a quoted GeoJSON geometry object for polygons or other geometry. WKT is not supported.
+CSV accepts comma, semicolon or tab delimiters, quoted fields, and a UTF-8 BOM. Provide `lon/lat`, `longitude/latitude`, or `lng/lat` for points. A `geometry` column may contain a quoted GeoJSON geometry object for polygons or other geometry. Recorder 1.7.0 includes this column in CSV exports. WKT is not supported.
 
-**CSV from the existing recorder contains representative coordinates, not boundary vertices: it normally produces point placemarks. Use polygon GeoJSON for plot boundaries.** This converter cannot recover missing boundary data.
+**CSV from recorder versions before 1.7.0 contains representative coordinates, not boundary vertices, and normally produces point placemarks.** New CSV exports retain available geometry, as do GeoJSON, KML and KMZ. This converter cannot recover missing boundary data.
 
 Coordinates must already be WGS 84 longitude/latitude degrees. Declared legacy GeoJSON CRS objects are rejected rather than silently reprojected. Invalid records are skipped and reported; files over 50 MB are rejected. Numerical range checks cannot detect every wrongly assigned CRS, and the converter does not validate polygon topology. Verify placement and parcel counts in Google Earth.
 
-Developer checks: run `node test-recorder.cjs` and `node test-converter.cjs`. The recorder check exercises the panel's download handlers, verifies KML/KMZ against the converter, checks missing/invalid geometry, and confirms storage and existing exports remain unchanged. The converter check creates `test-output.kml` and `test-output.kmz` alongside the converter for inspection. Its checks cover polygon holes, mixed geometry, XML escaping, CSV delimiters/quoting and invalid coordinates. The converter's serialization core is embedded in the userscript to keep installation to one file; keep both copies in sync when changing export behavior.
+Developer checks: run `node test-recorder.cjs` and `node test-converter.cjs`. The recorder check covers decoded parcel JSON, point-to-polygon upgrades, original GeoJSON highlights, raster exclusion, CSV geometry, and direct KML/KMZ downloads. It uses browser/map stubs; it does not establish that a particular live BHUMI plot provides vector geometry. The converter check creates `test-output.kml` and `test-output.kmz` alongside the converter for inspection. Its checks cover polygon holes, mixed geometry, XML escaping, CSV delimiters/quoting and invalid coordinates. The converter's serialization core is embedded in the userscript to keep installation to one file; keep both copies in sync when changing export behavior.
 
 ## Exported fields
 
@@ -150,6 +152,7 @@ Field names and Indonesian category values remain unchanged for compatibility.
 | `search_term` | Search term active when the parcel was recorded |
 | `source` | Source marker, such as peta (map), panel or url |
 | `recorded_at` | Recording timestamp in ISO 8601 format |
+| `geometry` (CSV) | Available GeoJSON geometry, including polygon vertices; `null` when unavailable |
 
 The source calls the representative coordinates a centroid. The implementation averages coordinate pairs; this is not necessarily an area-weighted polygon centroid or a point inside the parcel.
 
@@ -163,6 +166,7 @@ The recorder logic is in [`bhumi-recorder.user.js`](bhumi-recorder.user.js), wit
 4. **DOM fallback:** reads the visible information panel using MutationObserver when network observation is unavailable.
 5. **Normalisation:** maps raw right-type, NIB, area and land-use fields and classifies records.
 6. **Storage:** saves records in same-origin localStorage and deduplicates by NIB. Records lacking NIB are discarded.
+7. **Decoded geometry:** observes the app's `JSON.parse` results for parcel features with a NIB, preserving the original parser result and reviver behavior. This reads data already decoded by BHUMI; it adds no requests or decryption logic. Matching features from the original `highlight` GeoJSON source are also recorded. Rendered tile queries and raster extents are not used as boundaries.
 
 Console API:
 
