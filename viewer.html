@@ -49,7 +49,7 @@
     .leaflet-popup-content { font: 13px/1.5 system-ui; }
     .pk { color: #778; } .pv { font-weight: 600; }
     .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; color: #fff; font-size: 11px; font-weight: 700; }
-    /* Label NIB permanen di atas tiap penanda titik */
+    /* Permanent NIB labels above each point marker */
     .nib-label { background: rgba(255,255,255,.9); border: 1px solid rgba(0,0,0,.15); border-radius: 6px;
       padding: 1px 5px; font: 700 10px system-ui; color: #333; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
     .nib-label::before { display: none; }
@@ -88,7 +88,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script>
-    var map = L.map('map', { zoomControl: true }).setView([-2.5, 118], 5); // tengah Indonesia
+    var map = L.map('map', { zoomControl: true }).setView([-2.5, 118], 5); // central Indonesia
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; OpenStreetMap'
     }).addTo(map);
@@ -142,7 +142,7 @@
         onEachFeature: function (f, lyr) {
           var p = f.properties || {};
           lyr.bindPopup(popupHtml(p));
-          // Label NIB permanen supaya "keliatan yang sudah pernah dititik".
+          // Permanent NIB labels make previously marked parcels visible.
           if (p.nib && f.geometry && f.geometry.type === 'Point') {
             lyr.bindTooltip(String(p.nib), { permanent: true, direction: 'top', className: 'nib-label', offset: [0, -8] });
           }

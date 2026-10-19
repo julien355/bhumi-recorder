@@ -212,7 +212,7 @@ __BHUMI_REC__.clear()      // Delete all recorded data
 
 Useful contributions include field-mapping diagnostics, compatibility with changed BHUMI map implementations, and improvements to viewer labels, filters and exports.
 
-Fork, create a branch, test manually on BHUMI with reproducible steps, and open a pull request. Follow the existing vanilla JavaScript style. The application interface remains in Indonesian.
+Fork, create a branch, test manually on BHUMI with reproducible steps, and open a pull request. Follow the existing vanilla JavaScript style and write comments in English. Code comments and userscript metadata are in English; the application interface remains in Indonesian.
 
 For upstream bugs and suggestions, use [upstream issues](https://github.com/mhrdwan/bhumi-recorder/issues).
 
