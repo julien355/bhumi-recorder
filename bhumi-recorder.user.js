@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BHUMI Recorder — Land Parcel & Land Rights Recorder
 // @namespace    https://github.com/mhrdwan/bhumi-recorder
-// @version      1.7.1
+// @version      1.7.2
 // @description  Automatically record land parcels clicked on the BHUMI map, add map MARKERS, show a breakdown by right type (Hak Milik/HGB/etc.) and a parcel list in the panel, and export GeoJSON, CSV, KML & KMZ.
 // @author       mhrdwan
 // @homepageURL  https://github.com/mhrdwan/bhumi-recorder
@@ -68,10 +68,12 @@
   var lastClick = null;      // { lonlat:[lon,lat], point:[x,y], ts } — latest map click
   var clickSeq = 0;          // increments on every map click
   var polyDoneSeq = 0;       // clickSeq for which a polygon was already attached
+  var envelopeCand = null;   // { bbox, ts } — envelope seen before its record existed
   var clickCands = [];       // [{ geom, src, nib, ts }] — polygons seen since the last click
   var lastTouched = null;    // { key, ts } — record created/updated most recently
   var scanUntil = 0;         // JSON.parse hook scans results until this timestamp
   var lastProbe = null;
+  var payloadLog = [];       // last decrypted JSON payloads parsed right after a click (for diagnosis)
 
   var store = loadJson(STORE_KEY, {});      // { dedupKey: feature }
   var searches = loadJson(SEARCH_KEY, []);  // [{ q, ts }]
@@ -230,6 +232,7 @@
     if (existed) lastRepeat = { nib: feature.properties.nib, kategori: feature.properties.kategori, ts: Date.now() };
 
     lastTouched = { key: key, ts: Date.now() };
+    if (envelopeCand && lastClick && envelopeCand.ts >= lastClick.ts) { feature.properties.bbox = envelopeCand.bbox; envelopeCand = null; }
     applyPolygon(); // attach a polygon captured for this click, if any
     persist();
     schedulePins(); // update markers on the BHUMI map
@@ -853,7 +856,27 @@
   }
   // The recorded area (luas, m²) is the best test that a polygon IS the parcel and not a
   // zone, map sheet or bbox rectangle that merely contains the click.
-  var AREA_MIN = 0.6, AREA_MAX = 1.6;
+  var AREA_MIN = 0.75, AREA_MAX = 1.3;
+
+  // BHUMI also returns the parcel ENVELOPE (an axis-aligned rectangle). It is not the boundary:
+  // keep it as a `bbox` property, never as the polygon.
+  function isEnvelope(g) {
+    if (g.type !== 'Polygon' || g.coordinates.length !== 1) return false;
+    var r = g.coordinates[0];
+    if (r.length === 5 && r[0][0] === r[4][0] && r[0][1] === r[4][1]) r = r.slice(0, 4);
+    if (r.length !== 4) return false;
+    var eps = 1e-9;
+    for (var i = 0; i < 4; i++) {
+      var a = r[i], b = r[(i + 1) % 4];
+      if (Math.abs(a[0] - b[0]) > eps && Math.abs(a[1] - b[1]) > eps) return false;
+    }
+    return true;
+  }
+  function bboxOf(g) {
+    var pts = collectCoords(g), x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    pts.forEach(function (p) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); });
+    return [x0, y0, x1, y1].map(function (v) { return Math.round(v * 1e7) / 1e7; });
+  }
 
   // Keep valid polygons that contain the last click: [{ geom, via, nib }]
   function acceptable(cands) {
@@ -862,19 +885,27 @@
       var g = fixGeom(c.geom);
       if (!g) { log('poligon ditolak (koordinat tak wajar)', c.via, JSON.stringify(collectCoords(c.geom).slice(0, 2))); return; }
       if (click && !geomHas(g, click[0], click[1])) { log('poligon ditolak (tak memuat titik klik)', c.via, vertexCount(g) + ' titik'); return; }
-      out.push({ geom: g, via: c.via, nib: nibOf(c.props) });
+      out.push({ geom: g, via: c.via, nib: nibOf(c.props), envelope: isEnvelope(g) });
     });
     return out;
   }
 
   function offerPolygons(cands, src) {
     var ok = acceptable(cands);
+    var real = 0;
     ok.forEach(function (c) {
-      log('kandidat poligon', src + ':' + c.via, vertexCount(c.geom) + ' titik', Math.round(geoAreaM2(c.geom)) + ' m²');
+      log('kandidat poligon', src + ':' + c.via, vertexCount(c.geom) + ' titik', Math.round(geoAreaM2(c.geom)) + ' m²', c.envelope ? '(persegi pembatas / bbox, bukan batas bidang)' : '');
+      if (c.envelope) { // remember the envelope on the record, but do not use it as the boundary
+        var rec = lastTouched && store[lastTouched.key];
+        if (rec && (!lastClick || lastTouched.ts >= lastClick.ts)) { rec.properties.bbox = bboxOf(c.geom); persist(); }
+        else envelopeCand = { bbox: bboxOf(c.geom), ts: Date.now() };
+        return;
+      }
+      real++;
       clickCands.push({ geom: c.geom, src: src + (c.via ? ':' + c.via : ''), nib: c.nib, ts: Date.now() });
     });
-    if (ok.length) applyPolygon();
-    return ok.length > 0;
+    if (real) applyPolygon();
+    return real > 0;
   }
 
   // Attach the best polygon seen for the latest click to the record that click created/updated.
@@ -926,6 +957,8 @@
       if (!inScan && Date.now() < scanUntil && r && typeof r === 'object') {
         inScan = true;
         try {
+          var txt0 = typeof arguments[0] === 'string' ? arguments[0] : '';
+          if (txt0.length > 30) { payloadLog.push({ t: new Date().toISOString(), chars: txt0.length, json: txt0.slice(0, 30000) }); if (payloadLog.length > 15) payloadLog.shift(); }
           var cands = polysIn(r, 'json');
           if (cfg.debug) log('JSON.parse (' + String(arguments[0] == null ? '' : arguments[0]).length + ' kar) bentuk:', shapeOf(r, 4).slice(0, 700));
           if (cands.length) { log('JSON.parse berisi ' + cands.length + ' poligon'); offerPolygons(cands, 'json'); }
@@ -1466,6 +1499,7 @@
     map: function () { return mapInst; },
     probe: probe,
     lastProbe: function () { return lastProbe; },
+    payloads: function () { return payloadLog; },
     clear: function () { store = {}; lastRepeat = null; persist(); renderPins(); renderPanel(); }
   };
 
