@@ -51,7 +51,7 @@ These upstream illustrations use example data. Their embedded labels remain in I
 
 ### Polygon and Google Earth clarification
 
-The current recorder exports GeoJSON and CSV, not KML or KMZ directly. It preserves geometry supplied by the source, but may record only a point or no geometry. Check for `Polygon` or `MultiPolygon` before expecting parcel boundaries. Converting a point to KML does not create a boundary.
+The recorder exports GeoJSON and CSV. Use the included [Google Earth converter](converter.html) to turn those files into KML or KMZ. It preserves geometry supplied by the source, but may record only a point or no geometry. Check for `Polygon` or `MultiPolygon` before expecting parcel boundaries. Converting a point to KML does not create a boundary.
 
 In version 1.5.0, merging duplicate records prefers existing geometry. A previously recorded point can therefore remain even if richer geometry arrives later. This documentation translation does not fix that behaviour.
 
@@ -107,6 +107,26 @@ The script initially enables debugging because BHUMI's data structure can change
 - **Local viewer:** open [`viewer.html`](viewer.html), then drag `bhumi-bidang.geojson` into it. Click records to inspect details and enable **Tampilkan label NIB** to display parcel identifiers.
 - **Web viewer:** open [geojson.io](https://geojson.io) and load the exported GeoJSON if you are comfortable using that external site.
 - **Spreadsheet:** open `bhumi-bidang.csv` in Excel, Numbers or Google Sheets.
+
+## Convert to Google Earth KML / KMZ
+
+1. Download [converter.html](https://raw.githubusercontent.com/julien355/bhumi-recorder/main/converter.html) (save the page/file as `converter.html`, not `.txt`) or download this repository via **Code → Download ZIP**.
+2. Open `converter.html` locally in Chrome, Edge or Firefox.
+3. Choose the recorder's GeoJSON or CSV export.
+4. Review the geometry counts and skipped-record report. Choose a placemark label field if needed.
+5. Click **Download KML** or **Download KMZ**, then open the result in Google Earth.
+
+The converter is self-contained and runs offline without sending your files anywhere. KMZ uses a valid uncompressed ZIP container with `doc.kml`; it is convenient for packaging but does not reduce file size.
+
+Supported GeoJSON geometry: Point, MultiPoint, LineString, MultiLineString, Polygon, MultiPolygon and GeometryCollection. Polygon holes and parcel grouping are retained; unclosed rings are closed and winding is normalised. Features are clamped to the ground, so input altitudes are intentionally not retained. All properties become KML ExtendedData.
+
+CSV accepts comma, semicolon or tab delimiters, quoted fields, and a UTF-8 BOM. Provide `lon/lat`, `longitude/latitude`, or `lng/lat` for points. A `geometry` column may contain a quoted GeoJSON geometry object for polygons or other geometry. WKT is not supported.
+
+**CSV from the existing recorder contains representative coordinates, not boundary vertices: it normally produces point placemarks. Use polygon GeoJSON for plot boundaries.** This converter cannot recover missing boundary data.
+
+Coordinates must already be WGS 84 longitude/latitude degrees. Declared legacy GeoJSON CRS objects are rejected rather than silently reprojected. Invalid records are skipped and reported; files over 50 MB are rejected. Numerical range checks cannot detect every wrongly assigned CRS, and the converter does not validate polygon topology. Verify placement and parcel counts in Google Earth.
+
+Developer check: run `node test-converter.cjs`. It creates `test-output.kml` and `test-output.kmz` alongside the converter for inspection. The checks cover polygon holes, mixed geometry, XML escaping, CSV delimiters/quoting and invalid coordinates.
 
 ## Exported fields
 
@@ -173,6 +193,8 @@ __BHUMI_REC__.clear()      // Delete all recorded data
 |---|---|
 | `bhumi-recorder.user.js` | Recorder installed through Tampermonkey |
 | `viewer.html` | Local map viewer |
+| `converter.html` | Offline GeoJSON/CSV to KML/KMZ converter |
+| `test-converter.cjs` | Converter regression checks (Node.js) |
 | `docs/panel-preview.png` | Recorder interface illustration |
 | `docs/viewer-preview.png` | Viewer illustration |
 | `README.md` | English documentation |
