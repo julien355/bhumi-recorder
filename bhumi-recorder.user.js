@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BHUMI Recorder — Land Parcel & Land Rights Recorder
 // @namespace    https://github.com/mhrdwan/bhumi-recorder
-// @version      1.7.2
+// @version      1.7.3
 // @description  Automatically record land parcels clicked on the BHUMI map, add map MARKERS, show a breakdown by right type (Hak Milik/HGB/etc.) and a parcel list in the panel, and export GeoJSON, CSV, KML & KMZ.
 // @author       mhrdwan
 // @homepageURL  https://github.com/mhrdwan/bhumi-recorder
@@ -214,9 +214,26 @@
   // Recording entry point.
   function record(rawProps, geometry, source) {
     if (!cfg.recording) return;
+    // Preserve main's envelope and area checks on the newly added capture paths.
+    var boundaryBox = null;
+    if (isPolygon(geometry) && /^(peta-json|peta-highlight)$/.test(source)) {
+      geometry = fixGeom(geometry);
+      if (geometry && geometryRank(geometry) !== 3) geometry = null;
+      if (geometry && isEnvelope(geometry)) {
+        boundaryBox = bboxOf(geometry);
+        geometry = null;
+      }
+      if (geometry) {
+        var saved = store['nib:' + pick(rawProps, FIELD_PATTERNS.nib)];
+        var area = luasOf({ luas: pick(rawProps, FIELD_PATTERNS.luas) || (saved && saved.properties.luas) });
+        var ratio = area ? geoAreaM2(geometry) / area : null;
+        if (area && (ratio < AREA_MIN || ratio > AREA_MAX)) geometry = null;
+      }
+    }
     var feature;
     try { feature = normalize(rawProps, geometry, source); } catch (e) { log('normalize gagal', e); return; }
     if (!meaningful(feature)) { log('dilewati (tak ada atribut relevan)', source, rawProps); return; }
+    if (boundaryBox) feature.properties.bbox = boundaryBox;
 
     var key = dedupKey(feature);
     var existed = !!store[key];
@@ -244,14 +261,14 @@
   // then recalculate the rights classification. This lets an unknown entry be
   // updated when right-type data arrives (e.g. from a rating_layer URL).
   function isPolygon(g) { return !!g && (g.type === 'Polygon' || g.type === 'MultiPolygon'); }
-  function geomRank(g) { return !g ? 0 : (isPolygon(g) ? 2 : 1); }
   function mergeFeatures(oldF, newF) {
     var op = oldF.properties, np = newF.properties;
     function prefer(a, b) { return (a != null && String(a).trim() !== '') ? a : b; }
     var tipe = prefer(np.tipe_hak, op.tipe_hak);
     var cls = classifyHak(tipe);
-    // Prefer a polygon over a point (a click point must never block a real boundary).
-    var useNew = geomRank(newF.geometry) > geomRank(oldF.geometry);
+    // A URL/DOM record often arrives before the decoded parcel polygon.
+    // Upgrade points to boundaries, but never downgrade a saved boundary.
+    var useNew = !!newF.geometry && geometryRank(newF.geometry) >= geometryRank(oldF.geometry);
     var geom = useNew ? newF.geometry : (oldF.geometry || newF.geometry);
     var geomSource = useNew ? np.geom_source : prefer(op.geom_source, np.geom_source);
     var areaRatio = useNew ? np.poly_area_ratio : prefer(op.poly_area_ratio, np.poly_area_ratio);
@@ -272,10 +289,33 @@
         source: src,
         geom_source: geomSource || '',
         poly_area_ratio: areaRatio == null ? '' : areaRatio,
+        bbox: np.bbox || op.bbox,
         recorded_at: np.recorded_at,
         raw: Object.assign({}, op.raw, np.raw)
       }
     };
+  }
+
+  function geometryRank(geometry) {
+    if (!geometry) return 0;
+    var result = EarthExport.prepare([{ geometry: geometry }]);
+    if (!result.valid.length) return 0;
+    return result.totals.polygons ? 3 : result.totals.lines ? 2 : 1;
+  }
+
+  // BHUMI decodes getPersil responses and then calls JSON.parse in the app.
+  // Observe that already-decoded GeoJSON; do not decrypt responses or issue
+  // requests. The original parse result (including reviver behavior) is intact.
+  // Only parcel features with a NIB are accepted, excluding our own saved data.
+  function ingestDecodedFeatures(data, source) {
+    if (!data || typeof data !== 'object') return;
+    var list = data.type === 'Feature' ? [data] : data.features;
+    if (!Array.isArray(list)) return;
+    list.forEach(function (f) {
+      var p = f && (f.properties || f.attributes);
+      if (!p || !pick(p, FIELD_PATTERNS.nib) || (p.recorded_at && p.source)) return;
+      record(p, f.geometry || null, source);
+    });
   }
 
   // Accept any JSON payload and extract its features.
@@ -323,7 +363,7 @@
   // =====================================================================
   // Click coordinates (for mapping)
   // -------------------------------------------------------------------
-  // BHUMI encrypts parcel polygon shapes. On a click, however, the application
+  // BHUMI may encrypt parcel responses. On a click, however, the application
   // sends point coordinates to /expapi/getPersil. Try reading those coordinates
   // from the request body, then attach them as Point geometry to the parcel
   // recorded shortly afterward.
@@ -596,6 +636,10 @@
               scheduleMapCapture();
             }
           } catch (er) {}
+          captureHighlight();
+        });
+        m.on('sourcedata', function (e) {
+          if (e && e.sourceId === 'highlight') captureHighlight();
         });
       }
     } catch (e) {}
@@ -609,6 +653,30 @@
       });
     } catch (e) { log('bind style gagal', e); }
     schedulePanel();
+  }
+
+  // Read original GeoJSON rather than queryRenderedFeatures: rendered geometry
+  // can be clipped to tiles. Ignore raster sources, bbox and recorder markers.
+  // Requiring the feature's own NIB prevents attaching another layer's highlight
+  // to whichever parcel happened to be clicked most recently.
+  var highlightRead = 0;
+  function captureHighlight() {
+    if (!cfg.recording || !mapInst) return;
+    try {
+      var s = mapInst.getSource('highlight');
+      if (!s || s.type !== 'geojson') return;
+      var read = ++highlightRead;
+      function accept(data) {
+        if (read !== highlightRead || !cfg.recording || mapInst.getSource('highlight') !== s) return;
+        ingestDecodedFeatures(data, 'peta-highlight');
+      }
+      if (typeof s.getData === 'function') {
+        Promise.resolve(s.getData()).then(accept).catch(function () {});
+      } else {
+        var data = s.serialize ? s.serialize().data : s._data;
+        if (data && typeof data === 'object') accept(data);
+      }
+    } catch (e) { log('baca highlight gagal', e); }
   }
 
   // --- Strategy 1: intercept global maplibregl/mapboxgl libraries if available ---
@@ -954,6 +1022,13 @@
     var _parse = JSON.parse;
     JSON.parse = function () {
       var r = _parse.apply(this, arguments);
+      if (!inScan && cfg.recording && r && typeof r === 'object' &&
+          (r.type === 'Feature' || Array.isArray(r.features))) {
+        inScan = true;
+        try { ingestDecodedFeatures(r, 'peta-json'); }
+        catch (e) { log('baca GeoJSON aplikasi gagal', e); }
+        finally { inScan = false; }
+      }
       if (!inScan && Date.now() < scanUntil && r && typeof r === 'object') {
         inScan = true;
         try {
@@ -1151,11 +1226,11 @@
     return '"' + v.replace(/"/g, '""') + '"';
   }
   function toCSV() {
-    var cols = ['nib', 'tipe_hak', 'kategori', 'is_hak_milik', 'penggunaan', 'luas', 'lon', 'lat', 'search_term', 'source', 'recorded_at'];
+    var cols = ['nib', 'tipe_hak', 'kategori', 'is_hak_milik', 'penggunaan', 'luas', 'lon', 'lat', 'search_term', 'source', 'recorded_at', 'geometry'];
     var rows = [cols.join(',')];
     features().forEach(function (f) {
       var p = f.properties;
-      rows.push(cols.map(function (c) { return csvCell(p[c]); }).join(','));
+      rows.push(cols.map(function (c) { return csvCell(c === 'geometry' ? JSON.stringify(f.geometry) : p[c]); }).join(','));
     });
     return rows.join('\r\n');
   }
@@ -1383,6 +1458,16 @@
     body.appendChild(el('div', 'color:#666;font-size:11px;margin-bottom:10px',
       'bidang terekam · ' + features().filter(function (f) { return isPolygon(f.geometry); }).length + ' dengan poligon'));
 
+    if (c.total) {
+      var boundaryCount = features().filter(function (f) { return geometryRank(f.geometry) === 3; }).length;
+      body.appendChild(el('div', 'font-size:11px;margin-bottom:10px;color:#555',
+        'Batas poligon: ' + boundaryCount + ' / ' + c.total + ' bidang'));
+      if (boundaryCount < c.total) {
+        body.appendChild(el('div', 'font-size:10px;margin-bottom:10px;color:#7a5b00',
+          'Sebagian batas belum tertangkap. Klik ulang bidang setelah pembaruan. Sorotan berupa gambar WMS tidak menyediakan koordinat poligon.'));
+      }
+    }
+
     // Category breakdown
     var grid = el('div', 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;text-align:center');
     grid.appendChild(chip('Hak Milik', c.milik, '#1a9850'));
@@ -1466,7 +1551,7 @@
     var clr = btn('Hapus', 'background:#b33;flex:1');
     clr.addEventListener('click', function () {
       if (confirm('Hapus semua ' + c.total + ' bidang terekam?')) {
-        store = {}; searches = []; lastSearch = ''; lastRepeat = null; persist(); saveJson(SEARCH_KEY, searches); renderPins(); renderPanel();
+        highlightRead++; store = {}; searches = []; lastSearch = ''; lastRepeat = null; persist(); saveJson(SEARCH_KEY, searches); renderPins(); renderPanel();
       }
     });
     row2.appendChild(dbg); row2.appendChild(clr);
@@ -1500,7 +1585,7 @@
     probe: probe,
     lastProbe: function () { return lastProbe; },
     payloads: function () { return payloadLog; },
-    clear: function () { store = {}; lastRepeat = null; persist(); renderPins(); renderPanel(); }
+    clear: function () { highlightRead++; store = {}; lastRepeat = null; persist(); renderPins(); renderPanel(); }
   };
 
   // =====================================================================

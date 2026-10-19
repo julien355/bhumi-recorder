@@ -1,4 +1,4 @@
-# ── Claude Code / agen (jangan di-commit) ──────────────────────────
+# ── Claude Code / agents (do not commit) ──────────────────────────
 .claude/
 CLAUDE.md
 CLAUDE.local.md
@@ -20,18 +20,18 @@ Icon?
 *.swo
 *~
 
-# ── Node / tooling (kalau nanti ditambahkan) ───────────────────────
+# ── Node / tooling (if added later) ────────────────────────────────
 node_modules/
 npm-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# ── Log & berkas sementara ─────────────────────────────────────────
+# ── Logs & temporary files ────────────────────────────────────────
 *.log
 tmp/
 scratch/
 
-# ── Data hasil rekaman lokal (punya masing-masing pengguna) ────────
+# ── Local recorded data (belongs to each user) ────────────────────
 bhumi-bidang.geojson
 bhumi-bidang.csv
 bhumi-bidang.kml

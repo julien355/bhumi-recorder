@@ -157,10 +157,10 @@ Seluruh logika ada di satu file, [`bhumi-recorder.user.js`](bhumi-recorder.user.
 
 ```js
 __BHUMI_REC__.count()      // { total, milik, lain, unknown }
-__BHUMI_REC__.breakdown()  // rincian per jenis hak
-__BHUMI_REC__.geojson()    // string GeoJSON
-__BHUMI_REC__.cleanup()    // rapikan: buang tanah kosong & gabung dobel
-__BHUMI_REC__.clear()      // hapus semua
+__BHUMI_REC__.breakdown()  // Breakdown by right type
+__BHUMI_REC__.geojson()    // GeoJSON string
+__BHUMI_REC__.cleanup()    // Clean up: remove vacant land entries and merge duplicates
+__BHUMI_REC__.clear()      // Delete all recorded data
 ```
 
 ---
@@ -190,11 +190,11 @@ __BHUMI_REC__.clear()      // hapus semua
 
 ```
 bhumi-recorder/
-├── bhumi-recorder.user.js   # skrip perekam (dipasang di Tampermonkey)
-├── viewer.html              # penampil peta lokal (offline)
+├── bhumi-recorder.user.js   # recorder script (installed in Tampermonkey)
+├── viewer.html              # local map viewer (offline)
 ├── docs/
-│   ├── panel-preview.png    # ilustrasi UI panel
-│   └── viewer-preview.png   # ilustrasi UI viewer
+│   ├── panel-preview.png    # panel UI illustration
+│   └── viewer-preview.png   # viewer UI illustration
 └── README.md
 ```
 
@@ -208,7 +208,7 @@ Kontribusi sangat diterima! Karena BHUMI kadang mengubah struktur datanya, bantu
 - Perbaikan deteksi instance peta / penanganan versi peta baru.
 - Perbaikan `viewer.html` (label, filter, ekspor).
 
-Alur: fork → buat branch → uji manual di `bhumi.atrbpn.go.id` (sertakan langkah reproduksi) → buka Pull Request. Ikuti gaya kode yang ada (vanilla JS, tanpa dependensi, banyak komentar berbahasa Indonesia).
+Alur: fork → buat branch → uji manual di `bhumi.atrbpn.go.id` (sertakan langkah reproduksi) → buka Pull Request. Ikuti gaya kode yang ada (vanilla JS, tanpa dependensi, komentar berbahasa Inggris).
 
 Ada bug atau usul fitur? Buka **[Issue](https://github.com/mhrdwan/bhumi-recorder/issues)**.
 
