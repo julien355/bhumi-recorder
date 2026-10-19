@@ -1,228 +1,196 @@
-<div align="center">
+# BHUMI Recorder
 
-# 🗺️ BHUMI Recorder
+Record land parcels and land-right types from [BHUMI ATR/BPN](https://bhumi.atrbpn.go.id/peta), directly in your browser without a recording server.
 
-**Perekam bidang tanah & status Hak Milik dari peta [BHUMI ATR/BPN](https://bhumi.atrbpn.go.id/peta) — langsung di browser, tanpa server.**
+Click parcels normally. The tool records their information, adds coloured map markers, counts parcels by right type, and exports GeoJSON and CSV.
 
-Klik bidang tanah seperti biasa, dan alat ini otomatis **mencatat**, **menandai di peta**, **menghitung per jenis hak**, lalu **mengekspor** ke GeoJSON & CSV.
+English documentation for the `julien355/bhumi-recorder` fork of [mhrdwan/bhumi-recorder](https://github.com/mhrdwan/bhumi-recorder). Original authorship and MIT licence must be retained. [Original Indonesian documentation](README.id.md). This translation does not change the program or translate its interface.
 
-[![Pasang](https://img.shields.io/badge/⬇_Pasang-1--klik-1a9850)](https://raw.githubusercontent.com/mhrdwan/bhumi-recorder/main/bhumi-recorder.user.js)
-![Versi](https://img.shields.io/badge/versi-1.5.0-0a7d3c)
-![Lisensi](https://img.shields.io/badge/lisensi-MIT-0a5a7d)
-![Userscript](https://img.shields.io/badge/Tampermonkey-userscript-0a7d3c)
-![Privasi](https://img.shields.io/badge/privasi-tanpa%20server%20·%20tanpa%20tracking-9e9e9e)
+## What is it for?
 
-<img src="docs/panel-preview.png" alt="Panel BHUMI Recorder di atas peta BHUMI dengan penanda bidang berwarna" width="820">
+BHUMI displays registered parcels and their land-right types when you select them. BHUMI Recorder helps collect that information while you browse manually:
 
-</div>
+- **Count parcels:** see totals for Hak Milik, Hak Guna Bangunan, Hak Pakai and other right types, ranked by count.
+- **Track inspected parcels:** coloured point markers show what you have already clicked: green for Hak Milik, orange for other rights, grey for unknown status.
+- **Save results:** export GeoJSON for mapping and CSV for spreadsheets, including NIB, right type, area, land use, coordinates and search terms where available.
+- **View saved results:** open `viewer.html` and load the exported GeoJSON.
 
----
+Useful for personal land research and preliminary site screening. You browse manually; the recorder collects information in the background.
 
-## ✨ Untuk apa ini?
+## Main features
 
-BHUMI (portal resmi Kementerian ATR/BPN) menampilkan **bidang tanah terdaftar** beserta **jenis haknya** — tapi datanya cuma muncul sesaat saat kamu klik satu bidang, tidak bisa dikumpulkan atau dihitung. **BHUMI Recorder** menjembatani itu:
-
-- **Menghitung tanah** — tahu persis ada berapa **Hak Milik**, **Hak Guna Bangunan**, **Hak Pakai**, dll. di area yang kamu jelajahi, otomatis terurut dari terbanyak.
-- **Memetakan cepat** — tiap bidang yang kamu klik diberi **titik penanda berwarna** menempel di peta BHUMI (🟢 Hak Milik · 🟠 hak lain · ⚪️ belum ketahuan), jadi kelihatan mana yang sudah kamu survei.
-- **Menyimpan hasil** — ekspor **GeoJSON** (untuk peta) dan **CSV** (untuk Excel/Sheets), lengkap dengan NIB, jenis hak, luas, penggunaan, koordinat, dan kata pencarian.
-- **Menampilkan ulang** — buka `viewer.html` (offline, tanpa internet) untuk melihat kembali semua bidang tersimpan di peta.
-
-Cocok untuk riset lahan pribadi, survei awal calon lokasi, atau sekadar memetakan status hak di sekitar sebuah area — **kamu tetap menjelajah manual**, alat ini hanya mencatat di belakang layar.
-
----
-
-## 🧩 Fitur utama
-
-| | Fitur |
+| Feature | Description |
 |---|---|
-| 📍 | **Penanda di peta BHUMI** — titik berwarna sesuai status hak, ikut geser & zoom, menempel di bidang yang sama |
-| 🧮 | **Rincian per jenis hak** — hitungan Hak Milik / HGB / Hak Pakai / dll. langsung di panel |
-| 🗂️ | **Daftar bidang** — semua NIB + jenisnya; klik satu baris untuk **terbang ke titiknya** di peta |
-| 🔁 | **Anti-duplikat** — klik ulang bidang yang sama tidak bikin titik dobel (dedup berdasarkan NIB) |
-| 🚫 | **Abaikan tanah kosong** — hanya klik yang menghasilkan NIB yang dihitung |
-| 🔎 | **Rekam kata pencarian** — istilah yang kamu cari ikut tersimpan per bidang |
-| ⬇️ | **Ekspor GeoJSON & CSV** — sekali klik dari panel |
-| 🖥️ | **Penampil offline** — `viewer.html` menampilkan hasil tanpa perlu server atau internet |
-| 🔒 | **100% lokal** — data disimpan di `localStorage` browser; tak ada data yang dikirim ke mana pun |
+| Map markers | Coloured points remain attached to their map locations during pan and zoom. |
+| Right-type breakdown | Counts appear directly in the recorder panel. |
+| Parcel list | NIB and right type; click a row to navigate to its location. |
+| Duplicate prevention | Records are deduplicated by NIB. |
+| Ignore records without NIB | Only selections returning a NIB are recorded. |
+| Search history | The current search term is saved with each record. |
+| Export | Download GeoJSON and CSV from the panel. |
+| Local viewer | View saved data without running a server. |
+| Local storage | Recorded data is stored in the browser's localStorage. |
 
----
+## Screenshots
 
-## 🖼️ Tampilan
+Recorder panel, shown at the bottom right of BHUMI:
 
-**Panel perekam** (muncul di pojok kanan-bawah situs BHUMI):
+![BHUMI Recorder panel](docs/panel-preview.png)
 
-<img src="docs/panel-preview.png" alt="Panel extension BHUMI Recorder" width="760">
+Local viewer, after loading an exported GeoJSON file:
 
-**Penampil lokal `viewer.html`** (seret file `.geojson` hasil rekaman ke sini):
+![Local map viewer](docs/viewer-preview.png)
 
-<img src="docs/viewer-preview.png" alt="Penampil peta viewer.html" width="760">
+These upstream illustrations use example data. Their embedded labels remain in Indonesian.
 
-> Gambar di atas adalah ilustrasi UI yang setia dengan tampilan asli. Data pada gambar hanya contoh.
+## Important limitations
 
----
+1. **Owner names are not provided.** The tool records land-right types, not the owner's identity.
+2. **Coverage is incomplete.** Unregistered or unmapped parcels may have no information. A missing record does not establish that land is vacant or unowned.
+3. **This is spatial information, not legal verification.** The upstream project advises official checks through SKPT, the BPN office or a PPAT before a land purchase.
 
-## ⚠️ Baca dulu — 3 batasan penting
+### Polygon and Google Earth clarification
 
-1. **Nama pemilik TIDAK ada.** BHUMI sengaja menyembunyikannya demi privasi (UU PDP). Kamu hanya bisa tahu **jenis hak**-nya (Hak Milik / HGB / Hak Pakai / dll), **bukan siapa** pemiliknya.
-2. **Hanya bidang terdaftar & sudah di-plotting** yang punya data. Tanah yang belum terdaftar / belum dipetakan tidak akan muncul datanya.
-3. **Bukan kepastian hukum.** BHUMI = informasi spasial. Kalau mau beli tanah, tetap verifikasi resmi lewat **SKPT / kantor BPN / PPAT**. Jangan mengambil keputusan hukum hanya dari sini.
+The current recorder exports GeoJSON and CSV, not KML or KMZ directly. It preserves geometry supplied by the source, but may record only a point or no geometry. Check for `Polygon` or `MultiPolygon` before expecting parcel boundaries. Converting a point to KML does not create a boundary.
 
----
+In version 1.5.0, merging duplicate records prefers existing geometry. A previously recorded point can therefore remain even if richer geometry arrives later. This documentation translation does not fix that behaviour.
 
-## 🔧 Pemasangan (sekali saja)
+The upstream README describes the viewer as offline. Treat this as local-file use: external map tiles or libraries may still require connectivity. The browser also contacts BHUMI during normal browsing; local recording does not mean the whole browsing session is offline.
 
-> ### ⚡ Pasang cepat (1 klik)
-> Sudah punya Tampermonkey? Klik link ini — Tampermonkey akan otomatis menawarkan **Install**:
-> **→ [Pasang bhumi-recorder.user.js](https://raw.githubusercontent.com/mhrdwan/bhumi-recorder/main/bhumi-recorder.user.js)**
-> Setelah terpasang, skrip akan **update otomatis** setiap ada versi baru.
+## Installation
 
-Belum punya Tampermonkey, atau mau pasang manual? Ikuti langkah di bawah.
+### Install Tampermonkey
 
-### 1. Pasang ekstensi Tampermonkey
+Install the extension from your browser's official store:
 
-Buka **Chrome** (atau Edge/Firefox/Brave) → pasang dari toko ekstensi resmi:
+- [Chrome / Edge / Brave](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo)
+- [Firefox](https://addons.mozilla.org/firefox/addon/tampermonkey/)
 
-- Chrome/Edge/Brave: [Chrome Web Store — Tampermonkey](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo)
-- Firefox: [Add-ons — Tampermonkey](https://addons.mozilla.org/firefox/addon/tampermonkey/)
+### Add the recorder script
 
-### 2. Tambahkan skrip perekam
+1. Click the Tampermonkey icon and choose **Create a new script**.
+2. Remove the example code.
+3. Open [`bhumi-recorder.user.js`](bhumi-recorder.user.js), copy its complete contents and paste them into the editor.
+4. Choose **File  Save**, or press **Ctrl+S / Cmd+S**.
+5. Open or reload BHUMI. The script is configured to run on `bhumi.atrbpn.go.id`.
 
-1. Klik ikon **Tampermonkey** → **Create a new script…**
-2. **Hapus** semua teks contoh.
-3. Buka [`bhumi-recorder.user.js`](bhumi-recorder.user.js), **salin seluruh isinya**, tempel ke editor.
-4. **File → Save** (`Cmd/Ctrl+S`). Selesai — skrip aktif otomatis di `bhumi.atrbpn.go.id`.
+Alternatively, open the [upstream installation link](https://raw.githubusercontent.com/mhrdwan/bhumi-recorder/main/bhumi-recorder.user.js); Tampermonkey should offer to install it.
 
-> **Alternatif:** seret file `bhumi-recorder.user.js` langsung ke tab browser; Tampermonkey biasanya menawarkan tombol **Install** otomatis.
+**Update source:** the copied upstream script still points its automatic update URLs to `mhrdwan/bhumi-recorder`. Installing it uses upstream updates. Those URLs must be deliberately changed before distributing a separately maintained fork version.
 
----
+## Usage
 
-## 🚀 Cara pakai
+1. Open [BHUMI](https://bhumi.atrbpn.go.id/peta).
+2. Enable **Tambah Data  Bidang Tanah** (Add Data  Land Parcels). Read the disclaimer and accept it if you agree.
+3. Look for the green **BHUMI Recorder** panel at the bottom right. Refresh if it does not appear.
+4. Click a parcel. When NIB/right-type/area information is returned, the recorder count should increase and a coloured marker should appear.
+5. Search for a location or NIB/HAK reference and click the parcels you want to record.
+6. Click **GeoJSON** and **CSV** to download results, normally into Downloads.
 
-1. Buka **https://bhumi.atrbpn.go.id/peta**
-2. Aktifkan layer bidang: menu **Tambah Data → Bidang Tanah**, lalu **setujui disclaimer** ("Saya setuju").
-3. Panel hijau **"BHUMI Recorder"** muncul di pojok kanan-bawah. (Kalau tidak muncul, refresh halaman.)
-4. **Klik sebuah bidang tanah** → info NIB/Tipe Hak/Luas muncul, angka di panel **bertambah**, dan **titik penanda berwarna** menempel di bidang itu.
-5. Mau memetakan area? **Cari lokasi** (kolom pencarian NIB/HAK) lalu **klik bidang-bidang** yang kamu mau — semuanya terekam otomatis.
-6. Klik **⬇︎ GeoJSON** dan **⬇︎ CSV** untuk menyimpan hasil (masuk ke folder **Downloads**).
+The panel also contains a right-type breakdown and parcel list. Original interface labels:
 
-Panel juga menampilkan **rincian per jenis hak**, **daftar bidang** (klik untuk terbang ke titiknya), dan tombol **🔍 Lihat semua titik**, plus **Jeda/Lanjut**, **Debug: ON/OFF**, dan **Hapus**.
+| Indonesian | English |
+|---|---|
+| Lihat semua titik | Show all points |
+| Jeda / Lanjut | Pause / Resume |
+| Hapus | Clear / Delete |
+| Tidak diketahui | Unknown |
+| Menyiapkan penanda peta. | Preparing map markers. |
+| Tampilkan label NIB | Show NIB labels |
 
-### Run pertama: mode Debug
+### First run: debug mode
 
-Karena struktur data BHUMI bisa berubah, skrip mulai dengan **Debug: ON**. Saat pertama mengeklik bidang, buka **Console** (F12) dan cari baris hijau `[BHUMI-REC] …`. Kalau angka tak bertambah atau label terlihat aneh, salin log itu — supaya pemetaan field bisa difinalkan. Setelah yakin data benar, matikan **Debug: OFF**.
+The script initially enables debugging because BHUMI's data structure can change. Open the browser Console with **F12** and look for green `[BHUMI-REC]` entries after clicking a parcel. If counts do not increase or labels look wrong, inspect those messages to diagnose field mapping. Turn **Debug: OFF** after checking the results. Review logs for sensitive information before sharing them.
 
----
+## View exported results
 
-## 👀 Melihat hasil di peta
+- **Local viewer:** open [`viewer.html`](viewer.html), then drag `bhumi-bidang.geojson` into it. Click records to inspect details and enable **Tampilkan label NIB** to display parcel identifiers.
+- **Web viewer:** open [geojson.io](https://geojson.io) and load the exported GeoJSON if you are comfortable using that external site.
+- **Spreadsheet:** open `bhumi-bidang.csv` in Excel, Numbers or Google Sheets.
 
-**Cara A — penampil lokal (offline):** buka [`viewer.html`](viewer.html) (klik dua kali), lalu **seret** file `bhumi-bidang.geojson` ke dalamnya. Bidang tampil berwarna sesuai status hak; klik untuk lihat detail. Centang **"Tampilkan label NIB"** untuk menampilkan nomor bidang.
+## Exported fields
 
-**Cara B — tanpa file apa pun:** buka [geojson.io](https://geojson.io), seret `bhumi-bidang.geojson` ke sana.
+Field names and Indonesian category values remain unchanged for compatibility.
 
-**Buka tabelnya (Excel):** `bhumi-bidang.csv` bisa dibuka di Excel / Numbers / Google Sheets.
+| Field | Meaning |
+|---|---|
+| `nib` | Nomor Identifikasi Bidang: parcel identification number |
+| `tipe_hak` | Original land-right type, such as Hak Milik or Hak Guna Bangunan |
+| `kategori` | Hak Milik / Hak lain (other rights) / Tidak diketahui (unknown) |
+| `is_hak_milik` | Boolean indicating the Hak Milik classification |
+| `penggunaan` | Land use, if available |
+| `luas` | Reported area, if available |
+| `lon`, `lat` | Representative coordinates; code assumes EPSG:4326 |
+| `search_term` | Search term active when the parcel was recorded |
+| `source` | Source marker, such as peta (map), panel or url |
+| `recorded_at` | Recording timestamp in ISO 8601 format |
 
----
+The source calls the representative coordinates a centroid. The implementation averages coordinate pairs; this is not necessarily an area-weighted polygon centroid or a point inside the parcel.
 
-## 🗃️ Format data hasil ekspor
+## How it works
 
-Setiap bidang di GeoJSON/CSV memuat kolom berikut:
+The recorder logic is in [`bhumi-recorder.user.js`](bhumi-recorder.user.js), without external script dependencies:
 
-| Kolom | Arti |
-|-------|------|
-| `nib` | Nomor Identifikasi Bidang |
-| `tipe_hak` | Jenis hak persis (mis. `Hak Milik`, `Hak Guna Bangunan`) |
-| `kategori` | `Hak Milik` / `Hak lain` / `Tidak diketahui` |
-| `is_hak_milik` | `true` / `false` |
-| `penggunaan` | Penggunaan tanah (bila tersedia) |
-| `luas` | Luas (bila tersedia) |
-| `lon`, `lat` | Koordinat centroid (EPSG:4326) |
-| `search_term` | Kata pencarian saat bidang ini direkam |
-| `source` | Asal data (`peta` / `panel` / `url`) |
-| `recorded_at` | Waktu perekaman (ISO 8601) |
+1. **Network response observation:** at document start it wraps fetch and XMLHttpRequest to read relevant JSON responses generated by parcel clicks. Some attributes are read from request URL parameters.
+2. **Click coordinates:** listens for MapLibre map clicks, with a fallback using the getPersil request body.
+3. **Map integration:** locates the map through MapLibre/Mapbox globals or React fibre inspection, then adds a point-marker layer.
+4. **DOM fallback:** reads the visible information panel using MutationObserver when network observation is unavailable.
+5. **Normalisation:** maps raw right-type, NIB, area and land-use fields and classifies records.
+6. **Storage:** saves records in same-origin localStorage and deduplicates by NIB. Records lacking NIB are discarded.
 
----
-
-## ⚙️ Cara kerja (untuk kontributor)
-
-Seluruh logika ada di satu file, [`bhumi-recorder.user.js`](bhumi-recorder.user.js), tanpa dependensi eksternal:
-
-1. **Intip jaringan** — dijalankan `@run-at document-start`, membungkus `window.fetch` + `XMLHttpRequest` untuk membaca respons JSON (GetFeatureInfo / `rating_layer`) yang diambil peta saat kamu klik bidang. Sebagian data bahkan diambil langsung dari **query URL** karena lebih andal.
-2. **Koordinat klik** — didengarkan dari `map.on('click')` MapLibre (paling andal), dengan cadangan membaca body request `getPersil`.
-3. **Jembatan peta** — instance MapLibre GL BHUMI ditemukan lewat dua strategi: mem-*patch* global `maplibregl`/`mapboxgl`, atau menelusuri **React fiber** untuk objek yang berperilaku seperti peta — lalu memasang layer penanda titik di atasnya.
-4. **Cadangan tahan-CSP** — bila hook jaringan diblokir, panel info di layar dibaca via `MutationObserver` (DOM scrape).
-5. **Normalisasi & klasifikasi** — field mentah dipetakan (Tipe Hak/NIB/Luas/Penggunaan) dan diklasifikasikan Hak Milik / Hak lain / Tak diketahui.
-6. **Penyimpanan** — hasil disimpan di `localStorage` (same-origin), dedup berdasarkan NIB; tanah kosong dibuang otomatis.
-
-**API konsol** untuk debugging manual (ketik di Console):
+Console API:
 
 ```js
-__BHUMI_REC__.count()      // { total, milik, lain, unknown }
-__BHUMI_REC__.breakdown()  // rincian per jenis hak
-__BHUMI_REC__.geojson()    // string GeoJSON
-__BHUMI_REC__.cleanup()    // rapikan: buang tanah kosong & gabung dobel
-__BHUMI_REC__.clear()      // hapus semua
+__BHUMI_REC__.count()      // Counts: total, milik, lain, unknown
+__BHUMI_REC__.breakdown()  // Breakdown by right type
+__BHUMI_REC__.geojson()    // GeoJSON string
+__BHUMI_REC__.cleanup()    // Remove records without NIB and merge duplicates
+__BHUMI_REC__.clear()      // Delete all recorded data
 ```
 
----
+## Responsible use
 
-## 🧭 Etika & penggunaan wajar
+- Record during manual browsing; do not use the tool for mass automated clicking or crawling.
+- Respect the government service's capacity and applicable data-use conditions.
+- The upstream project specifies personal use and asks users not to redistribute data in bulk.
+- The script records information encountered within BHUMI; it is not intended to bypass access controls.
 
-- Alat ini hanya merekam saat **kamu** menjelajah manual — **jangan** dipakai untuk klik/crawl otomatis massal. Perlakukan server pemerintah dengan wajar.
-- Data untuk **keperluan pribadi**. Jangan menyebarluaskan data secara massal.
-- Skrip berjalan **di dalam** situs BHUMI (same-origin) dan **tidak menembus proteksi apa pun** — ia hanya mencatat data yang memang sudah kamu lihat di layar.
+## Troubleshooting
 
----
+| Symptom | Suggested action |
+|---|---|
+| Recorder panel is missing | Refresh; verify Tampermonkey and the script are enabled and the URL is on bhumi.atrbpn.go.id. |
+| Clicking a parcel does not increase the count | Enable Bidang Tanah, complete the disclaimer step and inspect Console logs. A NIB is required. |
+| Count increases but status is unknown | The source's right-type field may differ from expected names. Inspect the captured response and mapping. |
+| GeoJSON loads but the map is empty | Records may lack geometry; attributes may still be present in CSV. |
+| Preparing map markers never completes | The script has not attached to BHUMI's map. Try the local viewer for records that contain coordinates. |
+| Download buttons do not work | Check browser download/pop-up permissions and retry. |
+| Google Earth shows pins instead of parcels | The exported geometry contains points. Actual polygon coordinates are required for boundaries. |
 
-## 🛠️ Kalau bermasalah
+## Repository files
 
-| Gejala | Solusi |
-|--------|--------|
-| Panel tidak muncul | Refresh; pastikan Tampermonkey aktif & skrip ada; cek alamat memang `bhumi.atrbpn.go.id`. |
-| Klik bidang, angka tak naik | Pastikan layer **Bidang Tanah** aktif + disclaimer disetujui. Buka Console (F12), cek log `[BHUMI-REC]`, kirim log-nya. |
-| Angka naik tapi label "Tidak diketahui" | Nama field tipe hak beda dari perkiraan — kirim satu log `[BHUMI-REC] tangkap …`. |
-| GeoJSON terbuka tapi peta kosong | Data mungkin terekam via panel (tanpa koordinat). Atributnya tetap ada di CSV. |
-| Panel bilang "Menyiapkan penanda peta…" terus | Skrip belum menempel ke peta BHUMI. Penanda **selalu** tetap tampil di `viewer.html`. |
-| Tombol download tak jalan | Cek izin pop-up/unduh browser; coba lagi. |
+| Path | Purpose |
+|---|---|
+| `bhumi-recorder.user.js` | Recorder installed through Tampermonkey |
+| `viewer.html` | Local map viewer |
+| `docs/panel-preview.png` | Recorder interface illustration |
+| `docs/viewer-preview.png` | Viewer illustration |
+| `README.md` | English documentation |
+| `README.id.md` | Preserved original Indonesian documentation |
+| `LICENSE` | Original MIT licence |
 
----
+## Contributing
 
-## 📁 Struktur folder
+Useful contributions include field-mapping diagnostics, compatibility with changed BHUMI map implementations, and improvements to viewer labels, filters and exports.
 
-```
-bhumi-recorder/
-├── bhumi-recorder.user.js   # skrip perekam (dipasang di Tampermonkey)
-├── viewer.html              # penampil peta lokal (offline)
-├── docs/
-│   ├── panel-preview.png    # ilustrasi UI panel
-│   └── viewer-preview.png   # ilustrasi UI viewer
-└── README.md
-```
+Fork, create a branch, test manually on BHUMI with reproducible steps, and open a pull request. Follow the existing vanilla JavaScript style. The original code comments and application interface remain in Indonesian in this documentation-only translation.
 
----
+For upstream bugs and suggestions, use [upstream issues](https://github.com/mhrdwan/bhumi-recorder/issues).
 
-## 🤝 Kontribusi
+## Licence and attribution
 
-Kontribusi sangat diterima! Karena BHUMI kadang mengubah struktur datanya, bantuan paling berharga adalah:
+Released under the [MIT licence](LICENSE), copyright [mhrdwan](https://github.com/mhrdwan). Retain the original licence and copyright notice when copying or modifying the project.
 
-- **Log `[BHUMI-REC]`** dari Console saat field terlihat aneh — bantu finalisasi pemetaan field.
-- Perbaikan deteksi instance peta / penanganan versi peta baru.
-- Perbaikan `viewer.html` (label, filter, ekspor).
+Data source: Kementerian ATR/BPN - BHUMI. Viewer basemap: OpenStreetMap.
 
-Alur: fork → buat branch → uji manual di `bhumi.atrbpn.go.id` (sertakan langkah reproduksi) → buka Pull Request. Ikuti gaya kode yang ada (vanilla JS, tanpa dependensi, banyak komentar berbahasa Indonesia).
-
-Ada bug atau usul fitur? Buka **[Issue](https://github.com/mhrdwan/bhumi-recorder/issues)**.
-
----
-
-## 📄 Lisensi
-
-Dirilis di bawah [Lisensi MIT](LICENSE) © [mhrdwan](https://github.com/mhrdwan) — bebas dipakai, diubah, dan disebarkan.
-
----
-
-<div align="center">
-
-*Sumber data: Kementerian ATR/BPN — BHUMI. Basemap penampil: OpenStreetMap.*
-**Alat ini tidak berafiliasi dengan ATR/BPN.**
-
-</div>
+**This tool is not affiliated with ATR/BPN.**
