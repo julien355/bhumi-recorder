@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         BHUMI Recorder — Perekam Bidang Tanah & Status Hak
+// @name         BHUMI Recorder — Land Parcel & Land Rights Recorder
 // @namespace    https://github.com/mhrdwan/bhumi-recorder
-// @version      1.5.0
-// @description  Rekam otomatis bidang tanah yang diklik di peta BHUMI, beri PENANDA di peta + rincian per jenis hak (Hak Milik/HGB/dll) & daftar bidang langsung di panel, ekspor GeoJSON & CSV.
+// @version      1.6.0
+// @description  Automatically record land parcels clicked on the BHUMI map, add map MARKERS, show a breakdown by right type (Hak Milik/HGB/etc.) and a parcel list in the panel, and export GeoJSON, CSV, KML & KMZ.
 // @author       mhrdwan
 // @homepageURL  https://github.com/mhrdwan/bhumi-recorder
 // @supportURL   https://github.com/mhrdwan/bhumi-recorder/issues
@@ -15,30 +15,30 @@
 // ==/UserScript==
 
 /*
- * Cara kerja singkat:
- * 1. Skrip terpasang SEBELUM aplikasi peta memuat (@run-at document-start) lalu
- *    membungkus window.fetch + XMLHttpRequest supaya bisa "mengintip" data JSON
- *    (GetFeatureInfo) yang diambil peta BHUMI ketika kamu mengeklik sebuah bidang.
- * 2. Sebagai cadangan (kalau hook jaringan tidak jalan karena CSP/isolasi), skrip
- *    juga membaca panel info di layar (DOM scrape) via MutationObserver.
- * 3. Setiap bidang dinormalisasi (Tipe Hak, NIB, Luas, Penggunaan), diberi label
- *    Hak Milik / Hak lain / Tak diketahui, lalu disimpan di localStorage (dedup by NIB).
- * 4. Panel kecil di pojok kanan-bawah menampilkan hitungan + tombol Download.
+ * How it works:
+ * 1. The script runs BEFORE the map application loads (@run-at document-start),
+ *    then wraps window.fetch + XMLHttpRequest to inspect the JSON data
+ *    (GetFeatureInfo) that the BHUMI map retrieves when you click a parcel.
+ * 2. As a fallback (if network hooks fail due to CSP/isolation), the script
+ *    also reads the on-screen info panel (DOM scraping) via MutationObserver.
+ * 3. Each parcel is normalized (right type, NIB, area, land use), classified as
+ *    ownership / other rights / unknown, then saved in localStorage (dedup by NIB).
+ * 4. A small panel in the bottom-right corner displays counts + download buttons.
  *
- * CATATAN: nama field asli belum bisa dipastikan dari luar. Karena itu DEBUG=true
- * di run pertama — buka Console (F12) dan lihat log "[BHUMI-REC]" untuk melihat
- * skema aslinya, lalu beri tahu agar mapping field difinalkan.
+ * NOTE: The actual field names cannot yet be confirmed externally, so debugging
+ * is enabled on the first run. Open the Console (F12) and inspect "[BHUMI-REC]"
+ * logs to see the actual schema, then report it so field mapping can be finalized.
  */
 
 (function () {
   'use strict';
 
-  // Hindari inisialisasi ganda (SPA bisa mengeksekusi ulang).
+  // Prevent duplicate initialization (the SPA may execute the script again).
   if (window.__BHUMI_REC_ACTIVE__) return;
   window.__BHUMI_REC_ACTIVE__ = true;
 
   // =====================================================================
-  // Konfigurasi
+  // Configuration
   // =====================================================================
   var STORE_KEY = 'bhumi_recorder_v1';
   var SEARCH_KEY = 'bhumi_recorder_searches_v1';
@@ -54,7 +54,7 @@
   }
 
   // =====================================================================
-  // Penyimpanan (localStorage, same-origin)
+  // Storage (localStorage, same-origin)
   // =====================================================================
   function loadJson(key, fallback) {
     try { var v = JSON.parse(localStorage.getItem(key)); return v == null ? fallback : v; }
@@ -70,17 +70,17 @@
 
   function persist() { saveJson(STORE_KEY, store); }
 
-  // Rapikan data yang sudah tersimpan (dijalankan sekali saat mulai):
-  //  - buang entri tanpa NIB (tanah kosong / bukan bidang terdaftar),
-  //  - satukan entri ber-NIB sama yang mungkin dulu terekam dobel (mis. dulu
-  //    berkunci koordinat/timestamp sebelum syarat NIB ada).
-  // Ini memperbaiki data lama tanpa perlu "Hapus" manual.
+  // Clean up stored data (runs once at startup):
+  //  - remove entries without NIB (vacant land / unregistered parcels),
+  //  - merge entries with the same NIB that may have been recorded twice (e.g.
+  //    using coordinate/timestamp keys before NIB became mandatory).
+  // This repairs old data without requiring a manual clear.
   function cleanupStore() {
     var next = {}, changed = false, dropped = 0, merged = 0;
     Object.keys(store).forEach(function (k) {
       var f = store[k];
       var nib = (f && f.properties) ? String(f.properties.nib || '').trim() : '';
-      if (!nib) { changed = true; dropped++; return; }      // tanah kosong → buang
+      if (!nib) { changed = true; dropped++; return; }      // vacant land → discard
       var nk = 'nib:' + nib;
       if (next[nk]) { next[nk] = mergeFeatures(next[nk], f); changed = true; merged++; }
       else { next[nk] = f; if (nk !== k) changed = true; }
@@ -90,9 +90,9 @@
   }
 
   // =====================================================================
-  // Normalisasi field + klasifikasi Hak Milik
+  // Field normalization + ownership classification
   // =====================================================================
-  // Pola nama-field yang dicari (case-insensitive). Urutan = prioritas.
+  // Field-name patterns to match (case-insensitive). Order = priority.
   var FIELD_PATTERNS = {
     tipe_hak: [/tipe.?hak/i, /jenis.?hak/i, /nama.?hak/i, /status.?hak/i, /^hak$/i, /haktext/i],
     nib: [/^nib$/i, /nomor.?identifikasi.?bidang/i, /\bnib\b/i, /nibel/i],
@@ -114,7 +114,7 @@
     return '';
   }
 
-  // Kembalikan { kategori, warna, is_hak_milik } dari string tipe hak.
+  // Return { kategori, warna, is_hak_milik } from a right-type string.
   function classifyHak(tipeHak) {
     var v = (tipeHak || '').toLowerCase();
     if (/hak\s*milik|(^|[^a-z])hm([^a-z]|$)/.test(v)) {
@@ -123,11 +123,11 @@
     if (v.trim() === '') {
       return { kategori: 'Tidak diketahui', warna: '#9e9e9e', is_hak_milik: false };
     }
-    // Hak lain yang terdaftar (HGB, HGU, Hak Pakai, HPL, Wakaf, dll.)
+    // Other registered rights (building, cultivation, use, management, endowment, etc.)
     return { kategori: 'Hak lain', warna: '#e6a010', is_hak_milik: false };
   }
 
-  // Kumpulkan semua pasangan koordinat [x,y] dari geometry apa pun.
+  // Collect all [x,y] coordinate pairs from any geometry.
   function collectCoords(geom, out) {
     out = out || [];
     if (!geom) return out;
@@ -148,16 +148,16 @@
     if (!pts.length) return null;
     var sx = 0, sy = 0;
     for (var i = 0; i < pts.length; i++) { sx += pts[i][0]; sy += pts[i][1]; }
-    return [sx / pts.length, sy / pts.length]; // [lon, lat] (asumsi EPSG:4326)
+    return [sx / pts.length, sy / pts.length]; // [lon, lat] (assuming EPSG:4326)
   }
 
   function normalize(rawProps, geometry, source) {
     var tipe = pick(rawProps, FIELD_PATTERNS.tipe_hak);
     var cls = classifyHak(tipe);
-    // Tak ada geometri? Pakai koordinat klik terakhir (dari request getPersil) bila masih segar.
+    // No geometry? Use the latest click coordinates (from the getPersil request) if still recent.
     if (!geometry && pendingCoord && (Date.now() - pendingCoord.ts) < 8000) {
       geometry = { type: 'Point', coordinates: pendingCoord.lonlat };
-      pendingCoord = null; // pakai sekali agar tak salah tempel ke bidang lain
+      pendingCoord = null; // use once to avoid assigning them to another parcel
     }
     var cen = centroidOf(geometry);
     return {
@@ -190,14 +190,14 @@
 
   function meaningful(feature) {
     var p = feature.properties;
-    // WAJIB punya NIB. Klik yang tak menghasilkan NIB = tanah kosong / bukan bidang
-    // terdaftar → jangan dihitung, dan (karena tak ada NIB) jangan sampai membuat
-    // titik baru berulang di wilayah yang sama. Dengan syarat ini, kunci dedup SELALU
-    // memakai NIB, jadi klik ulang bidang yang sama = 1 entri (digabung), bukan titik baru.
+    // NIB is REQUIRED. Clicks returning no NIB = vacant land / unregistered parcels
+    // → do not count them or create repeated points in the same area without a NIB.
+    // This requirement ensures dedup keys ALWAYS use NIB, so repeated clicks on
+    // the same parcel produce one merged entry rather than a new point.
     return !!(p.nib && String(p.nib).trim());
   }
 
-  // Titik masuk perekaman.
+  // Recording entry point.
   function record(rawProps, geometry, source) {
     if (!cfg.recording) return;
     var feature;
@@ -206,26 +206,26 @@
 
     var key = dedupKey(feature);
     var existed = !!store[key];
-    if (existed) feature = mergeFeatures(store[key], feature); // gabung lama+baru; tipe hak yang terisi menang
+    if (existed) feature = mergeFeatures(store[key], feature); // merge old+new; prefer a nonempty right type
 
     store[key] = feature;
 
-    // Batasi ukuran store.
+    // Limit the store size.
     var keys = Object.keys(store);
     if (keys.length > MAX_ITEMS) delete store[keys[0]];
 
-    // Tandai kalau bidang ini SUDAH pernah direkam (biar user tahu "pernah di sini").
+    // Flag parcels that have ALREADY been recorded so the user recognizes a repeat visit.
     if (existed) lastRepeat = { nib: feature.properties.nib, kategori: feature.properties.kategori, ts: Date.now() };
 
     persist();
-    schedulePins(); // perbarui penanda di peta BHUMI
+    schedulePins(); // update markers on the BHUMI map
     log('REKAM', source, feature.properties.kategori, feature.properties.nib || '(tanpa NIB)', feature.properties.tipe_hak, feature);
     schedulePanel();
   }
 
-  // Gabungkan dua fitur ber-NIB sama: pertahankan nilai yang terisi + geometri bila ada,
-  // lalu hitung ulang klasifikasi hak. Inilah yang membuat entri "Tidak diketahui" bisa
-  // ter-upgrade begitu datang data yang memuat tipe hak (mis. dari URL rating_layer).
+  // Merge two features with the same NIB: retain nonempty values + available geometry,
+  // then recalculate the rights classification. This lets an unknown entry be
+  // updated when right-type data arrives (e.g. from a rating_layer URL).
   function mergeFeatures(oldF, newF) {
     var op = oldF.properties, np = newF.properties;
     function prefer(a, b) { return (a != null && String(a).trim() !== '') ? a : b; }
@@ -253,14 +253,14 @@
     };
   }
 
-  // Terima payload JSON apa pun, ekstrak fitur-fiturnya.
+  // Accept any JSON payload and extract its features.
   function ingestJson(url, data, source) {
     if (!data) return;
     log('tangkap', source, url, data);
     try {
       if (Array.isArray(data.features)) {
         data.features.forEach(function (ft) { record(ft.properties || ft.attributes || {}, ft.geometry, source); });
-      } else if (Array.isArray(data.results)) { // format ArcGIS identify
+      } else if (Array.isArray(data.results)) { // ArcGIS identify format
         data.results.forEach(function (r) { record(r.attributes || {}, r.geometry || null, source); });
       } else if (data.type === 'Feature') {
         record(data.properties || {}, data.geometry, source);
@@ -270,9 +270,9 @@
     } catch (e) { log('ingest gagal', e); }
   }
 
-  // Sebagian endpoint BHUMI menaruh info bidang di QUERY URL, mis.:
+  // Some BHUMI endpoints put parcel info in the URL QUERY, e.g.:
   //   /api/rating_layer?layer=persil&nib=07297&luas=511&tipehak=Hak+Guna+Bangunan&...
-  // Ambil langsung dari URL — jauh lebih andal daripada body yang sering terenkripsi.
+  // Read directly from the URL — much more reliable than the often-encrypted body.
   function ingestUrlParams(url, source) {
     try {
       var qi = url.indexOf('?');
@@ -286,7 +286,7 @@
         try { v = decodeURIComponent(pair.slice(idx + 1).replace(/\+/g, ' ')); } catch (e) { v = pair.slice(idx + 1); }
         if (!/^(undefined|null)?$/i.test(v)) params[k] = v;
       });
-      // hanya rekam bila jelas soal bidang (punya nib atau tipe hak)
+      // Only record data clearly related to a parcel (with NIB or right type).
       if (params.tipehak || params.tipe_hak || params.nib || params.NIB) record(params, null, source || 'url');
     } catch (e) { log('parse url gagal', e); }
   }
@@ -296,12 +296,12 @@
   }
 
   // =====================================================================
-  // Koordinat titik klik (untuk pemetaan)
+  // Click coordinates (for mapping)
   // -------------------------------------------------------------------
-  // Bentuk poligon bidang dienkripsi BHUMI. Tapi saat mengeklik, aplikasi
-  // mengirim koordinat titik ke /expapi/getPersil. Kita coba baca koordinat
-  // itu dari body request-nya, lalu tempelkan sebagai geometri Point ke bidang
-  // yang direkam beberapa saat setelahnya.
+  // BHUMI encrypts parcel polygon shapes. On a click, however, the application
+  // sends point coordinates to /expapi/getPersil. Try reading those coordinates
+  // from the request body, then attach them as Point geometry to the parcel
+  // recorded shortly afterward.
   // =====================================================================
   var pendingCoord = null; // { lonlat:[lon,lat], ts }
 
@@ -310,7 +310,7 @@
     log('koordinat klik:', lonlat, src || '');
   }
 
-  // Pastikan urutan [lon, lat] & masuk akal untuk wilayah Indonesia.
+  // Ensure [lon, lat] order and plausible coordinates for Indonesia.
   function normalizeLonLat(a, b) {
     var lonOk = function (x) { return x > 90 && x < 145; };
     var latOk = function (y) { return y > -12 && y < 9; };
@@ -322,7 +322,7 @@
   function tryCoordFromText(text) {
     if (!text || typeof text !== 'string') return null;
     var lat = null, lon = null;
-    // 1) coba sebagai JSON (rekursif cari key lat/lon-ish)
+    // 1) Try JSON (recursively search for latitude/longitude-like keys).
     try {
       (function scan(o) {
         if (!o || typeof o !== 'object') return;
@@ -337,7 +337,7 @@
         });
       })(JSON.parse(text));
     } catch (e) {}
-    // 2) fallback: cari pola "lon:..,lat:.." di teks apa pun
+    // 2) Fallback: look for a "lon:..,lat:.." pattern in any text.
     if (lat == null || lon == null) {
       var mLon = text.match(/["']?(?:lon|lng|long|longitude|x)["']?\s*[:=]\s*(-?\d+\.\d+)/i);
       var mLat = text.match(/["']?(?:lat|latitude|y)["']?\s*[:=]\s*(-?\d+\.\d+)/i);
@@ -362,7 +362,7 @@
       handleCoordBody(body);
       return;
     }
-    // body bisa berada di dalam objek Request (fetch(new Request(...)))
+    // The body may be inside a Request object (fetch(new Request(...))).
     if (input && typeof input.clone === 'function') {
       try {
         input.clone().text().then(function (t) {
@@ -376,7 +376,7 @@
   }
 
   // =====================================================================
-  // Hook jaringan: fetch
+  // Network hook: fetch
   // =====================================================================
   try {
     var _fetch = window.fetch;
@@ -385,9 +385,9 @@
         var promise = _fetch.apply(this, arguments);
         try {
           var url = (input && input.url) ? input.url : String(input || '');
-          if (/getpersil/i.test(url)) sniffCoordFromRequest(input, init); // ambil koordinat klik
+          if (/getpersil/i.test(url)) sniffCoordFromRequest(input, init); // read click coordinates
           if (looksLikeParcelUrl(url)) {
-            ingestUrlParams(url, 'peta'); // ambil tipehak/nib/luas dari query URL
+            ingestUrlParams(url, 'peta'); // read tipehak/nib/luas from the URL query
             promise.then(function (res) {
               try {
                 var ct = (res.headers && res.headers.get) ? (res.headers.get('content-type') || '') : '';
@@ -405,7 +405,7 @@
   } catch (e) { log('gagal hook fetch', e); }
 
   // =====================================================================
-  // Hook jaringan: XMLHttpRequest
+  // Network hook: XMLHttpRequest
   // =====================================================================
   try {
     var _open = XMLHttpRequest.prototype.open;
@@ -419,7 +419,7 @@
       try { if (/getpersil/i.test(self.__bhumiUrl || '')) { if (cfg.debug) log('req getPersil (xhr body):', body); handleCoordBody(body); } } catch (e) {}
       try {
         if (looksLikeParcelUrl(self.__bhumiUrl)) {
-          ingestUrlParams(self.__bhumiUrl, 'peta'); // ambil tipehak/nib/luas dari query URL
+          ingestUrlParams(self.__bhumiUrl, 'peta'); // read tipehak/nib/luas from the URL query
           self.addEventListener('load', function () {
             try {
               var txt = self.responseText;
@@ -438,27 +438,27 @@
   } catch (e) { log('gagal hook XHR', e); }
 
   // =====================================================================
-  // Jembatan Peta — taruh PENANDA bidang yang sudah direkam DI peta BHUMI
+  // Map bridge — place MARKERS for recorded parcels ON the BHUMI map
   // ---------------------------------------------------------------------
-  // BHUMI memakai MapLibre GL (lewat react-map-gl). Kalau kita berhasil
-  // memperoleh instance peta-nya, kita bisa menaruh titik penanda berwarna
-  // (sesuai status hak) tepat di atas peta. Titik itu ikut bergeser saat
-  // peta digeser/di-zoom, jadi "keliatan yang sudah pernah dititik" —
-  // menempel pada bidang yang sama seperti garis di BHUMI.
+  // BHUMI uses MapLibre GL (via react-map-gl). Once we obtain its map instance,
+  // we can place colored point markers (based on right status) directly on
+  // the map. The points follow map panning/zooming, making previously clicked
+  // parcels visible while staying attached to the same parcels, just like
+  // the boundary lines in BHUMI.
   //
-  // Bonus penting: begitu instance didapat, kita dengarkan klik peta
-  // (map.on('click')) untuk memperoleh koordinat KLIK yang andal — jauh
-  // lebih pasti daripada mengintip body getPersil yang kerap terenkripsi.
+  // Another benefit: once the instance is available, listen for map clicks
+  // (map.on('click')) to obtain reliable CLICK coordinates — much more
+  // reliable than inspecting the often-encrypted getPersil body.
   // =====================================================================
   var PIN_SRC = 'bhumi_rec_pins';
   var PIN_HALO = 'bhumi_rec_pins_halo';
   var PIN_DOT = 'bhumi_rec_pins_dot';
   var mapInst = null;
-  var lastRepeat = null; // { nib, kategori, ts } — bidang yang barusan diulang kliknya
+  var lastRepeat = null; // { nib, kategori, ts } — parcel that was just clicked again
 
   function mapConnected() { return !!mapInst; }
 
-  // Titik penanda dibangun dari centroid (lon/lat) tiap bidang yang punya koordinat.
+  // Build point markers from the centroid (lon/lat) of each parcel with coordinates.
   function pinFC() {
     var fs = features().filter(function (f) {
       var p = f && f.properties;
@@ -488,7 +488,7 @@
         m.addLayer({ id: PIN_DOT, type: 'circle', source: PIN_SRC,
           paint: { 'circle-radius': 6, 'circle-color': ['get', 'warna'], 'circle-stroke-width': 2.5, 'circle-stroke-color': '#ffffff' } });
       }
-      // Popup kecil saat penanda diklik (kalau MapLibre global tersedia).
+      // Show a small popup when a marker is clicked (if a MapLibre global is available).
       try {
         if (!m.__bhumiPinClick && typeof m.on === 'function') {
           m.__bhumiPinClick = true;
@@ -517,7 +517,7 @@
     try { var s = m.getSource(PIN_SRC); if (s && s.setData) s.setData(pinFC()); } catch (e) {}
   }
 
-  // Terbang ke satu bidang di peta BHUMI (dipakai dari daftar di panel).
+  // Fly to a parcel on the BHUMI map (used by the panel list).
   function flyToFeature(f) {
     var p = f && f.properties;
     if (!mapInst || !p || p.lon === '' || p.lat === '' || !isFinite(Number(p.lon)) || !isFinite(Number(p.lat))) return;
@@ -526,7 +526,7 @@
     } catch (e) {}
   }
 
-  // Zoom peta agar SEMUA penanda terlihat sekaligus ("lihat semua di sini").
+  // Zoom the map to show ALL markers at once ("show all here").
   function fitAllPins() {
     if (!mapInst) return;
     var fs = pinFC().features;
@@ -567,7 +567,7 @@
       if (m.isStyleLoaded && m.isStyleLoaded()) ensurePinLayers();
       else if (typeof m.once === 'function') m.once('load', ensurePinLayers);
       else ensurePinLayers();
-      // Basemap bisa berganti (mis. ganti citra satelit) → sumber/layer hilang, pasang ulang.
+      // Basemap changes (e.g. switching satellite imagery) remove sources/layers; add them again.
       if (typeof m.on === 'function') m.on('styledata', function () {
         try { if (!m.getSource(PIN_SRC)) ensurePinLayers(); } catch (e) {}
       });
@@ -575,7 +575,7 @@
     schedulePanel();
   }
 
-  // --- Strategi 1: cegat pustaka global maplibregl/mapboxgl bila ada ---
+  // --- Strategy 1: intercept global maplibregl/mapboxgl libraries if available ---
   function patchMapLib(lib) {
     if (!lib || typeof lib.Map !== 'function' || lib.__bhumiPatched) return;
     var Orig = lib.Map;
@@ -601,9 +601,9 @@
     } catch (e) {}
   }
 
-  // --- Strategi 2: telusuri React fiber untuk menemukan instance peta ---
-  // (react-map-gl mem-bundle maplibre secara privat, jadi seringkali tidak
-  //  ada di window; kita cari objek yang "berperilaku seperti peta MapLibre".)
+  // --- Strategy 2: traverse React fibers to find the map instance ---
+  // (react-map-gl bundles maplibre privately, so it is often unavailable on
+  //  window; look for an object that "behaves like a MapLibre map".)
   function looksLikeMap(o) {
     return o && typeof o === 'object' &&
       typeof o.addSource === 'function' && typeof o.getCanvas === 'function' &&
@@ -634,7 +634,7 @@
             if (looksLikeMap(obj._map)) return obj._map;
             if (typeof obj.getMap === 'function') { var mm = obj.getMap(); if (looksLikeMap(mm)) return mm; }
           } catch (e) {}
-          if (b === 2) { // rantai hook: memoizedState.next
+          if (b === 2) { // hook chain: memoizedState.next
             var hook = obj, hops = 0;
             while (hook && hops < 80) {
               try {
@@ -685,7 +685,7 @@
   }
 
   // =====================================================================
-  // Cadangan: baca panel info di DOM (MutationObserver) — tahan-CSP
+  // Fallback: read the DOM info panel (MutationObserver) — works under CSP
   // =====================================================================
   var PANEL_LABELS = {
     tipe_hak: /tipe\s*hak|jenis\s*hak/i,
@@ -695,7 +695,7 @@
   };
 
   function scrapeText(text) {
-    if (!text || text.length > 4000) return; // panel info umumnya pendek
+    if (!text || text.length > 4000) return; // info panels are usually short
     if (!PANEL_LABELS.tipe_hak.test(text) && !PANEL_LABELS.nib.test(text)) return;
     var props = {};
     grab(text, PANEL_LABELS.tipe_hak, 'tipe_hak', props);
@@ -705,7 +705,7 @@
     if (Object.keys(props).length) record(props, null, 'panel');
   }
   function grab(text, labelRe, key, out) {
-    // Cari "Label : nilai" atau "Label\n nilai"
+    // Match "Label : value" or "Label\n value".
     var re = new RegExp(labelRe.source + '\\s*[:\\-]?\\s*([^\\n\\r|]{1,80})', 'i');
     var m = text.match(re);
     if (m && m[1]) {
@@ -739,7 +739,7 @@
   }
 
   // =====================================================================
-  // Rekam kata kunci pencarian
+  // Record search terms
   // =====================================================================
   function isTextInput(el) {
     return el && el.tagName === 'INPUT' &&
@@ -765,7 +765,7 @@
   }, true);
 
   // =====================================================================
-  // Ekspor
+  // Export
   // =====================================================================
   function features() { return Object.keys(store).map(function (k) { return store[k]; }); }
 
@@ -785,6 +785,98 @@
       rows.push(cols.map(function (c) { return csvCell(p[c]); }).join(','));
     });
     return rows.join('\r\n');
+  }
+
+  // Serialization core from converter.html; test-recorder.cjs checks both exporters agree.
+  // Embedded to keep this userscript self-contained (no @require or network dependency).
+  var EarthExport = (function () {
+    const xml = v => String(v ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g,'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
+    function position(p){
+      if(!Array.isArray(p)||p.length<2||!Number.isFinite(p[0])||!Number.isFinite(p[1])||Math.abs(p[0])>180||Math.abs(p[1])>90)throw Error('Invalid WGS 84 coordinate. Expected [longitude, latitude].');
+      return [p[0],p[1]];
+    }
+    const coords=a=>a.map(p=>p.join(',')+',0').join(' ');
+    function line(c){if(!Array.isArray(c)||c.length<2)throw Error('Line needs at least two positions.');return c.map(position);}
+    function ring(c,outer){
+      if(!Array.isArray(c)||c.length<3)throw Error('Polygon ring needs three distinct vertices.');
+      let r=c.map(position);
+      if(r[0][0]!==r.at(-1)[0]||r[0][1]!==r.at(-1)[1])r.push([...r[0]]);
+      if(new Set(r.slice(0,-1).map(p=>p.join(','))).size<3)throw Error('Polygon ring needs three distinct vertices.');
+      const area=r.slice(0,-1).reduce((s,p,i)=>s+p[0]*r[i+1][1]-r[i+1][0]*p[1],0);
+      if(area===0)throw Error('Polygon ring has zero signed area.');
+      if((area>0)!==outer)r=r.reverse();return r;
+    }
+    function geometry(g,counts){
+      if(!g||typeof g!=='object')throw Error('Missing geometry.');
+      const c=g.coordinates;
+      switch(g.type){
+        case 'Point': counts.points++;return '<Point><altitudeMode>clampToGround</altitudeMode><coordinates>'+coords([position(c)])+'</coordinates></Point>';
+        case 'LineString': counts.lines++;return '<LineString><tessellate>1</tessellate><coordinates>'+coords(line(c))+'</coordinates></LineString>';
+        case 'Polygon': {
+          if(!Array.isArray(c)||!c.length)throw Error('Polygon has no rings.');counts.polygons++;
+          return '<Polygon><tessellate>1</tessellate>'+c.map((r,i)=>{const tag=i?'innerBoundaryIs':'outerBoundaryIs';return '<'+tag+'><LinearRing><coordinates>'+coords(ring(r,i===0))+'</coordinates></LinearRing></'+tag+'>';}).join('')+'</Polygon>';
+        }
+        case 'MultiPoint':case 'MultiLineString':case 'MultiPolygon': {
+          if(!Array.isArray(c)||!c.length)throw Error('Empty multi-geometry.');
+          const types={MultiPoint:'Point',MultiLineString:'LineString',MultiPolygon:'Polygon'};
+          return '<MultiGeometry>'+c.map(x=>geometry({type:types[g.type],coordinates:x},counts)).join('')+'</MultiGeometry>';
+        }
+        case 'GeometryCollection':if(!Array.isArray(g.geometries)||!g.geometries.length)throw Error('Empty geometry collection.');return '<MultiGeometry>'+g.geometries.map(x=>geometry(x,counts)).join('')+'</MultiGeometry>';
+        default:throw Error('Unsupported geometry type: '+g.type);
+      }
+    }
+    const value=v=>v!==null&&typeof v==='object'?JSON.stringify(v):String(v??'');
+    function kml(result,title,nameField){
+      const marks=result.valid.map((f,i)=>{
+        const p=f.properties,name=(nameField?p[nameField]:(p.nib||p.name||f.id))||'Parcel '+(i+1);
+        const data=Object.entries(p).map(([k,v])=>'<Data name="'+xml(k)+'"><value>'+xml(value(v))+'</value></Data>').join('');
+        return '<Placemark><name>'+xml(name)+'</name><styleUrl>#parcel</styleUrl><ExtendedData>'+data+'</ExtendedData>'+f.kml+'</Placemark>';
+      }).join('\n');
+      return '<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>'+xml(title)+'</name><Style id="parcel"><LineStyle><color>ff40b980</color><width>2</width></LineStyle><PolyStyle><color>4040b980</color><fill>1</fill><outline>1</outline></PolyStyle></Style>\n'+marks+'\n</Document></kml>';
+    }
+    function crc32(bytes){let c=0xffffffff;for(const b of bytes){c^=b;for(let j=0;j<8;j++)c=(c>>>1)^((c&1)?0xedb88320:0);}return (c^0xffffffff)>>>0;}
+    // ZIP STORE format: a standards-compliant KMZ without external compression libraries.
+    function kmz(text){
+      const enc=new TextEncoder(),data=enc.encode(text),name=enc.encode('doc.kml'),crc=crc32(data);
+      if(data.length>0xffffffff-200)throw Error('File exceeds classic ZIP limits.');
+      const local=new Uint8Array(30+name.length),lv=new DataView(local.buffer);
+      lv.setUint32(0,0x04034b50,true);lv.setUint16(4,20,true);lv.setUint16(12,33,true);lv.setUint32(14,crc,true);lv.setUint32(18,data.length,true);lv.setUint32(22,data.length,true);lv.setUint16(26,name.length,true);local.set(name,30);
+      const central=new Uint8Array(46+name.length),cv=new DataView(central.buffer);
+      cv.setUint32(0,0x02014b50,true);cv.setUint16(4,20,true);cv.setUint16(6,20,true);cv.setUint16(14,33,true);cv.setUint32(16,crc,true);cv.setUint32(20,data.length,true);cv.setUint32(24,data.length,true);cv.setUint16(28,name.length,true);central.set(name,46);
+      const end=new Uint8Array(22),ev=new DataView(end.buffer);
+      ev.setUint32(0,0x06054b50,true);ev.setUint16(8,1,true);ev.setUint16(10,1,true);ev.setUint32(12,central.length,true);ev.setUint32(16,local.length+data.length,true);
+      const out=new Uint8Array(local.length+data.length+central.length+end.length);let offset=0;for(const part of [local,data,central,end]){out.set(part,offset);offset+=part.length;}return out;
+    }
+    function prepare(features) {
+      const valid=[],errors=[],totals={points:0,lines:0,polygons:0};
+      features.forEach((f,i)=>{try{
+        const count={points:0,lines:0,polygons:0},shape=geometry(f.geometry,count);
+        for(const k of Object.keys(count))totals[k]+=count[k];
+        valid.push({kml:shape,properties:f.properties||{},id:f.id});
+      }catch(e){errors.push('Record '+(i+1)+': '+e.message);}});
+      return {valid,errors,totals,total:features.length};
+    }
+    return {prepare,kml,kmz};
+  })();
+
+  function exportEarth(format, status) {
+    try {
+      var result = EarthExport.prepare(features());
+      var summary = result.valid.length + '/' + result.total + ' bidang dengan geometri; ' +
+        result.totals.points + ' titik, ' + result.totals.polygons + ' poligon, ' + result.totals.lines + ' garis.';
+      if (!result.totals.polygons && result.valid.length) summary += ' Titik bukan batas bidang.';
+      if (result.errors.length) summary += ' Dilewati: ' + result.errors.length + ' (geometri kosong/tidak valid).';
+      status.textContent = format.toUpperCase() + ': ' + summary;
+      if (!result.valid.length) {
+        status.textContent += ' Tidak ada geometri yang dapat diekspor.';
+        return;
+      }
+      var text = EarthExport.kml(result, 'BHUMI - Bidang Tanah', 'nib');
+      download('bhumi-bidang.' + format, format === 'kmz' ? EarthExport.kmz(text) : text,
+        format === 'kmz' ? 'application/vnd.google-earth.kmz' : 'application/vnd.google-earth.kml+xml;charset=utf-8');
+    } catch (e) {
+      status.textContent = 'Gagal mengekspor ' + format.toUpperCase() + ': ' + e.message;
+    }
   }
 
   function download(filename, text, mime) {
@@ -818,8 +910,8 @@
     return c;
   }
 
-  // Rincian per JENIS hak persis (Hak Milik, Hak Guna Bangunan, Hak Pakai, dll.),
-  // urut dari yang terbanyak. Menjawab "ada berapa hak milik, HGB, dst.".
+  // Breakdown by exact right TYPE (ownership, building rights, use rights, etc.),
+  // ordered by count, highest first. Shows how many parcels have each right type.
   function breakdownByType() {
     var m = {};
     features().forEach(function (f) {
@@ -865,8 +957,8 @@
       min.textContent = body.style.display === 'none' ? '+' : '–';
     });
 
-    // Tempel ke <html>, BUKAN <body> — SPA BHUMI mengganti isi <body> saat mount
-    // sehingga panel di dalam body akan ikut terhapus.
+    // Attach to <html>, NOT <body> — the BHUMI SPA replaces <body> contents on mount,
+    // which would also remove a panel attached inside the body.
     document.documentElement.appendChild(panel);
   }
 
@@ -878,7 +970,7 @@
     var c = counts();
     body.innerHTML = '';
 
-    // Status merekam
+    // Recording status
     var recRow = el('div', 'display:flex;align-items:center;gap:8px;margin-bottom:10px');
     var dot = el('span', 'width:10px;height:10px;border-radius:50%;background:' + (cfg.recording ? '#e11' : '#999') +
       (cfg.recording ? ';box-shadow:0 0 0 4px rgba(238,17,17,.18)' : ''));
@@ -889,7 +981,7 @@
     recRow.appendChild(toggle);
     body.appendChild(recRow);
 
-    // Status penanda di peta
+    // Map marker status
     var mp = mapConnected();
     body.appendChild(el('div',
       'font-size:11px;margin-bottom:10px;padding:6px 8px;border-radius:8px;' +
@@ -897,7 +989,7 @@
       mp ? '📍 Penanda AKTIF di peta — bidang yang sudah direkam ditandai titik berwarna.'
          : '📍 Menyiapkan penanda peta… (kalau tak muncul, semua titik tetap ada di viewer.html)'));
 
-    // Tombol "lihat semua titik" (kalau peta terhubung & ada koordinat)
+    // "Show all points" button (when the map is connected and coordinates exist)
     if (mp && pinFC().features.length) {
       var seeAll = btn('🔍 Lihat semua titik di peta', 'background:#0a7d3c');
       seeAll.style.width = '100%'; seeAll.style.marginBottom = '10px';
@@ -905,26 +997,26 @@
       body.appendChild(seeAll);
     }
 
-    // Baru saja klik bidang yang PERNAH direkam?
+    // Was a PREVIOUSLY recorded parcel just clicked again?
     if (lastRepeat && (Date.now() - lastRepeat.ts) < 6000) {
       body.appendChild(el('div',
         'font-size:11px;margin-bottom:10px;padding:6px 8px;border-radius:8px;background:#eef3ff;color:#1c4dab',
         '✓ Sudah pernah direkam: ' + (lastRepeat.nib || '(tanpa NIB)') + ' — ' + lastRepeat.kategori));
     }
 
-    // Angka besar
+    // Large total count
     var big = el('div', 'font:800 28px system-ui;line-height:1', String(c.total));
     body.appendChild(big);
     body.appendChild(el('div', 'color:#666;font-size:11px;margin-bottom:10px', 'bidang terekam'));
 
-    // Rincian kategori
+    // Category breakdown
     var grid = el('div', 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;text-align:center');
     grid.appendChild(chip('Hak Milik', c.milik, '#1a9850'));
     grid.appendChild(chip('Hak lain', c.lain, '#e6a010'));
     grid.appendChild(chip('? / kosong', c.unknown, '#9e9e9e'));
     body.appendChild(grid);
 
-    // Rincian per JENIS hak (Hak Milik, HGB, Hak Pakai, dll.)
+    // Breakdown by right TYPE (ownership, building rights, use rights, etc.)
     var bd = breakdownByType();
     if (bd.length) {
       body.appendChild(el('div', 'font-size:10px;color:#888;margin-bottom:4px', 'Rincian per jenis hak'));
@@ -939,7 +1031,7 @@
       body.appendChild(bdWrap);
     }
 
-    // Daftar bidang (buka/tutup) — klik salah satu untuk terbang ke titiknya di peta
+    // Parcel list (expand/collapse) — click an entry to fly to its point on the map
     if (c.total) {
       var listBtn = el('div', 'cursor:pointer;color:#0a7d3c;font-weight:600;font-size:11px;margin-bottom:6px',
         (cfg.listOpen ? '▾ ' : '▸ ') + 'Daftar bidang (' + c.total + ')');
@@ -959,18 +1051,18 @@
       listBtn.addEventListener('click', function () { cfg.listOpen = !cfg.listOpen; saveJson(CFG_KEY, cfg); renderPanel(); });
     }
 
-    // Hint kalau kosong
+    // Hint when no data is recorded
     if (c.total === 0) {
       body.appendChild(el('div', 'background:#fff6e5;border:1px solid #ffe0a3;border-radius:8px;padding:8px;font-size:11px;color:#7a5b00;margin-bottom:10px',
         'Belum ada data. Aktifkan layer "Bidang Tanah", setujui disclaimer, lalu klik satu bidang. Buka Console (F12) untuk memeriksa log [BHUMI-REC].'));
     }
 
-    // Pencarian terakhir
+    // Latest search
     if (lastSearch) {
       body.appendChild(el('div', 'font-size:11px;color:#555;margin-bottom:10px', '🔎 Pencarian terakhir: ' + lastSearch));
     }
 
-    // Tombol
+    // Buttons
     var row1 = el('div', 'display:flex;gap:6px;margin-bottom:6px');
     var gj = btn('⬇︎ GeoJSON'); gj.style.flex = '1';
     gj.addEventListener('click', function () { download('bhumi-bidang.geojson', toGeoJSON(), 'application/geo+json'); });
@@ -978,6 +1070,21 @@
     cv.addEventListener('click', function () { download('bhumi-bidang.csv', '﻿' + toCSV(), 'text/csv;charset=utf-8'); });
     row1.appendChild(gj); row1.appendChild(cv);
     body.appendChild(row1);
+
+    // Google Earth: export directly without opening converter.html.
+    var earthRow = el('div', 'display:flex;gap:6px;margin-bottom:6px');
+    var earthStatus = el('div', 'font-size:10px;color:#666;margin-bottom:6px');
+    earthStatus.setAttribute('role', 'status');
+    earthStatus.setAttribute('aria-live', 'polite');
+    ['kml', 'kmz'].forEach(function (format) {
+      var button = btn('⬇︎ ' + format.toUpperCase(), 'background:#73529b;flex:1');
+      button.disabled = c.total === 0;
+      if (button.disabled) { button.style.opacity = '.5'; button.style.cursor = 'default'; }
+      button.addEventListener('click', function () { exportEarth(format, earthStatus); });
+      earthRow.appendChild(button);
+    });
+    body.appendChild(earthRow);
+    body.appendChild(earthStatus);
 
     var row2 = el('div', 'display:flex;gap:6px');
     var dbg = btn(cfg.debug ? 'Debug: ON' : 'Debug: OFF', 'background:#555;flex:1');
@@ -1006,7 +1113,7 @@
     return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
   }
 
-  // API kecil untuk debugging manual dari Console.
+  // Small API for manual debugging from the Console.
   window.__BHUMI_REC__ = {
     dump: function () { console.log(store); return store; },
     geojson: toGeoJSON,
@@ -1019,17 +1126,17 @@
   };
 
   // =====================================================================
-  // Inisialisasi setelah DOM siap
+  // Initialize when the DOM is ready
   // =====================================================================
   function whenReady(fn) {
     if (document.body) fn();
     else document.addEventListener('DOMContentLoaded', fn);
   }
   startObserver();
-  cleanupStore();  // rapikan data lama: buang tanah kosong & gabung dobel
-  initMapBridge(); // coba pasang penanda di peta BHUMI
+  cleanupStore();  // clean up old data: remove vacant land entries and merge duplicates
+  initMapBridge(); // try adding markers to the BHUMI map
   whenReady(function () { renderPanel(); });
-  // Penjaga: pasang ulang panel bila SPA sempat melepasnya dari DOM.
+  // Watchdog: reattach the panel if the SPA removes it from the DOM.
   setInterval(function () {
     try { if (panel && !panel.isConnected) document.documentElement.appendChild(panel); } catch (e) {}
   }, 1000);

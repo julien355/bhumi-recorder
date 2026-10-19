@@ -34,3 +34,5 @@ scratch/
 # ── Data hasil rekaman lokal (punya masing-masing pengguna) ────────
 bhumi-bidang.geojson
 bhumi-bidang.csv
+bhumi-bidang.kml
+bhumi-bidang.kmz
