@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BHUMI  Google Earth converter</title>
+<style>
+:root{font-family:system-ui,sans-serif;color:#e7eef0;background:#101c23;color-scheme:dark}body{max-width:900px;margin:48px auto;padding:0 24px}h1{font-size:36px;margin-bottom:12px}p{line-height:1.6;color:#b7c9ce}.tag{color:#6ce5b2;letter-spacing:2px;font-size:12px}section{background:#192b34;border:1px solid #34505b;border-radius:16px;padding:24px;margin:24px 0}label{display:block;margin:14px 0 8px}input,select,button{font:inherit;padding:12px;border:1px solid #53707a;border-radius:8px;background:#213942;color:inherit;max-width:100%;box-sizing:border-box}button{cursor:pointer;margin:12px 12px 0 0;background:#74e3b3;color:#09251e;font-weight:700}button:disabled{opacity:.35;cursor:default}#status{white-space:pre-wrap;line-height:1.6}details{margin-top:20px}summary{cursor:pointer}a{color:#80e8c4}.row{display:flex;gap:20px;flex-wrap:wrap}.row>div{flex:1;min-width:170px}small{color:#b7c9ce}#status.bad{color:#ffb6a6}footer{margin:32px 0;font-size:13px;color:#9bb1b9}
+</style></head><body>
+<div class="tag">BHUMI RECORDER / LOCAL TOOLS</div>
+<h1>Your parcels, in Google Earth.</h1>
+<p>Convert GeoJSON or CSV into KML or KMZ. Runs entirely on your computer, with no uploads, libraries or internet connection required.</p>
+<section><label for="file">1. Choose a GeoJSON or CSV file</label><input id="file" type="file" accept=".geojson,.json,.csv">
+<div class="row"><div><label for="name">Placemark label field</label><select id="name"><option value="">Automatic</option></select></div><div><label for="basename">Output file name</label><input id="basename" value="BHUMI_Parcels"></div></div>
+<p id="status" role="status" aria-live="polite">Choose a file to inspect its geometry.</p>
+<button id="kml" disabled>Download KML</button><button id="kmz" disabled>Download KMZ</button>
+</section>
+<details open><summary>What will be exported?</summary><p>Polygons retain their boundaries and holes. MultiPolygons remain grouped by parcel. Points stay points: CSV longitude/latitude columns cannot reconstruct parcel boundaries. All source attributes are included.</p>
+<p>Coordinates must be WGS 84 longitude/latitude in decimal degrees. Projected coordinates must be reprojected before conversion. CSV accepts <code>lon/lat</code>, <code>longitude/latitude</code> or <code>lng/lat</code>, or a <code>geometry</code> column containing a GeoJSON geometry object. Comma, semicolon and tab delimiters are supported, including quoted fields.</p>
+<p>Invalid records are skipped with a report. Check the counts before downloading. Exported geometry is clamped to the ground. This tool does not validate cadastral accuracy or repair self-intersections.</p></details>
+<footer>Based on BHUMI Recorder by mhrdwan � MIT licence � Not affiliated with ATR/BPN.<br>Open the downloaded KML/KMZ in Google Earth. KMZ contains a single doc.kml file.</footer>
+<script>
+'use strict';
+const Converter = (() => {
+  const xml = v => String(v ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g,'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
+  function csvRows(text, delimiter) {
+    const rows=[];let row=[],field='',quoted=false,closed=false;
+    for(let i=0;i<text.length;i++){
+      const c=text[i];
+      if(quoted){if(c==='"'){if(text[i+1]==='"'){field+='"';i++;}else{quoted=false;closed=true;}}else field+=c;continue;}
+      if(c===delimiter){row.push(field);field='';closed=false;}
+      else if(c==='\r'||c==='\n'){if(c==='\r'&&text[i+1]==='\n')i++;row.push(field);if(row.some(x=>x.trim()))rows.push(row);row=[];field='';closed=false;}
+      else if(c==='"'&&!field&&!closed)quoted=true;
+      else if(closed){if(!/\s/.test(c))throw Error('Unexpected text after a quoted CSV field.');}
+      else if(c==='"')throw Error('Quote inside an unquoted CSV field.');
+      else field+=c;
+    }
+    if(quoted)throw Error('Unclosed quoted CSV field.');
+    row.push(field);if(row.some(x=>x.trim()))rows.push(row);return rows;
+  }
+  function csv(text){
+    let rows=null;
+    for(const d of [',',';','\t']){try{const r=csvRows(text,d);if(r.length&&(!rows||r[0].length>rows[0].length))rows=r;}catch{}}
+    if(!rows||rows.length<2)throw Error('CSV needs a header and at least one data row; check quoting and delimiters.');
+    const headers=rows.shift().map(x=>x.trim());
+    if(headers.some(x=>!x)||new Set(headers.map(x=>x.toLowerCase())).size!==headers.length)throw Error('CSV headers must be nonempty and unique.');
+    const names=headers.map(x=>x.toLowerCase());
+    const gi=names.indexOf('geometry'),lon=names.findIndex(x=>['lon','longitude','lng'].includes(x)),lat=names.findIndex(x=>['lat','latitude'].includes(x));
+    if(gi<0&&(lon<0||lat<0))throw Error('CSV needs lon/lat (or longitude/latitude) columns, or a geometry column containing GeoJSON.');
+    return rows.map((r,i)=>{
+      const properties=Object.fromEntries(headers.map((h,j)=>[h,r[j]??'']));
+      try{
+        if(r.length!==headers.length)throw Error('CSV field count does not match the header.');
+        let geometry;
+        if(gi>=0&&r[gi].trim())geometry=JSON.parse(r[gi]);
+        else if(lon>=0&&lat>=0&&r[lon].trim()&&r[lat].trim())geometry={type:'Point',coordinates:[Number(r[lon]),Number(r[lat])]};
+        else throw Error('Missing geometry or coordinates.');
+        return {type:'Feature',geometry,properties};
+      }catch(e){return {type:'Feature',properties,geometry:null,error:'CSV row '+(i+2)+': '+e.message};}
+    });
+  }
+  function position(p){
+    if(!Array.isArray(p)||p.length<2||!Number.isFinite(p[0])||!Number.isFinite(p[1])||Math.abs(p[0])>180||Math.abs(p[1])>90)throw Error('Invalid WGS 84 coordinate. Expected [longitude, latitude].');
+    return [p[0],p[1]];
+  }
+  const coords=a=>a.map(p=>p.join(',')+',0').join(' ');
+  function line(c){if(!Array.isArray(c)||c.length<2)throw Error('Line needs at least two positions.');return c.map(position);}
+  function ring(c,outer){
+    if(!Array.isArray(c)||c.length<3)throw Error('Polygon ring needs three distinct vertices.');
+    let r=c.map(position);
+    if(r[0][0]!==r.at(-1)[0]||r[0][1]!==r.at(-1)[1])r.push([...r[0]]);
+    if(new Set(r.slice(0,-1).map(p=>p.join(','))).size<3)throw Error('Polygon ring needs three distinct vertices.');
+    const area=r.slice(0,-1).reduce((s,p,i)=>s+p[0]*r[i+1][1]-r[i+1][0]*p[1],0);
+    if(area===0)throw Error('Polygon ring has zero signed area.');
+    if((area>0)!==outer)r=r.reverse();return r;
+  }
+  function geometry(g,counts){
+    if(!g||typeof g!=='object')throw Error('Missing geometry.');
+    const c=g.coordinates;
+    switch(g.type){
+      case 'Point': counts.points++;return '<Point><altitudeMode>clampToGround</altitudeMode><coordinates>'+coords([position(c)])+'</coordinates></Point>';
+      case 'LineString': counts.lines++;return '<LineString><tessellate>1</tessellate><coordinates>'+coords(line(c))+'</coordinates></LineString>';
+      case 'Polygon': {
+        if(!Array.isArray(c)||!c.length)throw Error('Polygon has no rings.');counts.polygons++;
+        return '<Polygon><tessellate>1</tessellate>'+c.map((r,i)=>{const tag=i?'innerBoundaryIs':'outerBoundaryIs';return '<'+tag+'><LinearRing><coordinates>'+coords(ring(r,i===0))+'</coordinates></LinearRing></'+tag+'>';}).join('')+'</Polygon>';
+      }
+      case 'MultiPoint':case 'MultiLineString':case 'MultiPolygon': {
+        if(!Array.isArray(c)||!c.length)throw Error('Empty multi-geometry.');
+        const types={MultiPoint:'Point',MultiLineString:'LineString',MultiPolygon:'Polygon'};
+        return '<MultiGeometry>'+c.map(x=>geometry({type:types[g.type],coordinates:x},counts)).join('')+'</MultiGeometry>';
+      }
+      case 'GeometryCollection':if(!Array.isArray(g.geometries)||!g.geometries.length)throw Error('Empty geometry collection.');return '<MultiGeometry>'+g.geometries.map(x=>geometry(x,counts)).join('')+'</MultiGeometry>';
+      default:throw Error('Unsupported geometry type: '+g.type);
+    }
+  }
+  function parse(text,filename){
+    text=text.replace(/^\uFEFF/,'');let features;
+    if(/\.csv$/i.test(filename))features=csv(text);
+    else{
+      const data=JSON.parse(text);
+      if(data.crs)throw Error('GeoJSON declares a CRS. Re-export as WGS 84 RFC 7946 GeoJSON without a crs member.');
+      if(data.type==='FeatureCollection'){if(!Array.isArray(data.features))throw Error('Invalid FeatureCollection.');features=data.features;}
+      else if(data.type==='Feature')features=[data];
+      else features=[{type:'Feature',geometry:data,properties:{}}];
+    }
+    const valid=[],errors=[],totals={points:0,lines:0,polygons:0};
+    features.forEach((f,i)=>{try{
+      if(!f||f.type!=='Feature')throw Error('Expected a GeoJSON Feature.');
+      if(f.error)throw Error(f.error);
+      const count={points:0,lines:0,polygons:0},kml=geometry(f.geometry,count);
+      for(const k of Object.keys(count))totals[k]+=count[k];
+      valid.push({kml,properties:f.properties&&typeof f.properties==='object'&&!Array.isArray(f.properties)?f.properties:{},id:f.id});
+    }catch(e){errors.push('Record '+(i+1)+': '+e.message);}});
+    return {valid,errors,totals,total:features.length};
+  }
+  const value=v=>v!==null&&typeof v==='object'?JSON.stringify(v):String(v??'');
+  function kml(result,title,nameField){
+    const marks=result.valid.map((f,i)=>{
+      const p=f.properties,name=(nameField?p[nameField]:(p.nib||p.name||f.id))||'Parcel '+(i+1);
+      const data=Object.entries(p).map(([k,v])=>'<Data name="'+xml(k)+'"><value>'+xml(value(v))+'</value></Data>').join('');
+      return '<Placemark><name>'+xml(name)+'</name><styleUrl>#parcel</styleUrl><ExtendedData>'+data+'</ExtendedData>'+f.kml+'</Placemark>';
+    }).join('\n');
+    return '<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>'+xml(title)+'</name><Style id="parcel"><LineStyle><color>ff40b980</color><width>2</width></LineStyle><PolyStyle><color>4040b980</color><fill>1</fill><outline>1</outline></PolyStyle></Style>\n'+marks+'\n</Document></kml>';
+  }
+  function crc32(bytes){let c=0xffffffff;for(const b of bytes){c^=b;for(let j=0;j<8;j++)c=(c>>>1)^((c&1)?0xedb88320:0);}return (c^0xffffffff)>>>0;}
+  // ZIP STORE format: a standards-compliant KMZ without external compression libraries.
+  function kmz(text){
+    const enc=new TextEncoder(),data=enc.encode(text),name=enc.encode('doc.kml'),crc=crc32(data);
+    if(data.length>0xffffffff-200)throw Error('File exceeds classic ZIP limits.');
+    const local=new Uint8Array(30+name.length),lv=new DataView(local.buffer);
+    lv.setUint32(0,0x04034b50,true);lv.setUint16(4,20,true);lv.setUint16(12,33,true);lv.setUint32(14,crc,true);lv.setUint32(18,data.length,true);lv.setUint32(22,data.length,true);lv.setUint16(26,name.length,true);local.set(name,30);
+    const central=new Uint8Array(46+name.length),cv=new DataView(central.buffer);
+    cv.setUint32(0,0x02014b50,true);cv.setUint16(4,20,true);cv.setUint16(6,20,true);cv.setUint16(14,33,true);cv.setUint32(16,crc,true);cv.setUint32(20,data.length,true);cv.setUint32(24,data.length,true);cv.setUint16(28,name.length,true);central.set(name,46);
+    const end=new Uint8Array(22),ev=new DataView(end.buffer);
+    ev.setUint32(0,0x06054b50,true);ev.setUint16(8,1,true);ev.setUint16(10,1,true);ev.setUint32(12,central.length,true);ev.setUint32(16,local.length+data.length,true);
+    const out=new Uint8Array(local.length+data.length+central.length+end.length);let offset=0;for(const part of [local,data,central,end]){out.set(part,offset);offset+=part.length;}return out;
+  }
+  return {parse,kml,kmz};
+})();
+if(typeof module!=='undefined')module.exports=Converter;
+if(typeof document!=='undefined'){
+  const $=id=>document.getElementById(id);let result=null,sequence=0;
+  $('file').addEventListener('change',async()=>{
+    const current=++sequence;result=null;$('kml').disabled=$('kmz').disabled=true;$('name').replaceChildren(new Option('Automatic',''));
+    const file=$('file').files[0];if(!file){$('status').textContent='Choose a file.';return;}
+    $('status').className='';$('status').textContent='Reading file.';
+    try{
+      if(file.size>50*1024*1024)throw Error('Choose a file smaller than 50 MB.');
+      const text=await file.text();if(current!==sequence)return;
+      result=Converter.parse(text,file.name);$('basename').value=file.name.replace(/\.[^.]+$/,'');
+      const fields=[...new Set(result.valid.flatMap(f=>Object.keys(f.properties)))];for(const field of fields)$('name').add(new Option(field,field));
+      const t=result.totals;
+      $('status').textContent=result.valid.length+' of '+result.total+' records ready. '+t.polygons+' polygon parts � '+t.points+' points � '+t.lines+' lines.\n'+(t.polygons?'Polygon boundaries are included.':'No polygons found. This export will not contain parcel boundaries.')+(result.errors.length?'\n\nSkipped '+result.errors.length+' records:\n'+result.errors.slice(0,10).join('\n')+(result.errors.length>10?'\n.additional errors omitted.':''):'');
+      $('kml').disabled=$('kmz').disabled=!result.valid.length;
+    }catch(e){if(current!==sequence)return;$('status').className='bad';$('status').textContent=e.message;}
+  });
+  for(const format of ['kml','kmz'])$(format).addEventListener('click',()=>{
+    if(!result?.valid.length)return;
+    try{
+      const name=($('basename').value.trim()||'BHUMI_Parcels').replace(/[<>:"/\\|?*\u0000-\u001f]/g,'_').replace(/\.(kml|kmz)$/i,'');
+      const text=Converter.kml(result,name,$('name').value),blob=new Blob([format==='kmz'?Converter.kmz(text):text],{type:format==='kmz'?'application/vnd.google-earth.kmz':'application/vnd.google-earth.kml+xml;charset=utf-8'});
+      const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name+'.'+format;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+    }catch(e){$('status').className='bad';$('status').textContent='Export failed: '+e.message;}
+  });
+}
+</script></body></html>
+
