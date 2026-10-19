@@ -119,18 +119,30 @@ async function main() {
   ] }));
   assert.equal(captured.writes.length, writeCount, 'Own exports and unrelated layers are ignored');
 
-  const legacy = recorder([{ type: 'Feature', properties: { nib: 'PLOT-1', luas: '50', source: 'peta' },
+  const legacy = recorder([{ type: 'Feature', properties: { nib: 'PLOT-1', penggunaan: 'Kebun', source: 'peta' },
     geometry: { type: 'Polygon', coordinates: [[[116,-8],[117,-8],[117,-7],[116,-7],[116,-8]]] } }]);
   legacy.parse(decoded(selected));
   assert.deepEqual(JSON.parse(legacy.api.geojson()).features[0].geometry, selected,
     'New parcel vertices replace an older box-shaped polygon on re-selection');
-  assert.equal(JSON.parse(legacy.api.geojson()).features[0].properties.luas, '50');
+  assert.equal(JSON.parse(legacy.api.geojson()).features[0].properties.penggunaan, 'Kebun');
   const multi = { type: 'MultiPolygon', coordinates: [selected.coordinates, [
     [[116.6,-8],[116.8,-8],[116.7,-7.9],[116.6,-8]]
   ]] };
   legacy.parse(decoded(multi));
   assert.deepEqual(JSON.parse(legacy.api.geojson()).features[0].geometry, multi);
   assert.equal(legacy.api.count().total, 1, 'Repeated selection upgrades the existing saved NIB');
+
+  const envelope = recorder([]);
+  envelope.parse(decoded({ type: 'Point', coordinates: [116.2,-7.9] }));
+  envelope.parse(decoded({ type: 'Polygon', coordinates: [[[116,-8],[117,-8],[117,-7],[116,-7],[116,-8]]] }));
+  const bounded = JSON.parse(envelope.api.geojson()).features[0];
+  assert.equal(bounded.geometry.type, 'Point', 'Decoded envelope cannot bypass main envelope protection');
+  assert.deepEqual(bounded.properties.bbox, [116,-8,117,-7]);
+  const wrongArea = recorder([{ type: 'Feature', properties: { nib: 'PLOT-1', luas: '50', source: 'peta' },
+    geometry: { type: 'Point', coordinates: [116.2,-7.9] } }]);
+  wrongArea.parse(decoded(selected));
+  assert.equal(JSON.parse(wrongArea.api.geojson()).features[0].geometry.type, 'Point',
+    'Decoded GeoJSON cannot bypass recorded-area validation');
 
   class MapStub {
     constructor() { this.sources = {}; this.events = {}; }

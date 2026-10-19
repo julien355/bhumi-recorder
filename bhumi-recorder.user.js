@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BHUMI Recorder — Land Parcel & Land Rights Recorder
 // @namespace    https://github.com/mhrdwan/bhumi-recorder
-// @version      1.7.0
+// @version      1.7.3
 // @description  Automatically record land parcels clicked on the BHUMI map, add map MARKERS, show a breakdown by right type (Hak Milik/HGB/etc.) and a parcel list in the panel, and export GeoJSON, CSV, KML & KMZ.
 // @author       mhrdwan
 // @homepageURL  https://github.com/mhrdwan/bhumi-recorder
@@ -63,6 +63,17 @@
   function saveJson(key, val) {
     try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) { log('gagal simpan', key, e); }
   }
+
+  // Polygon-capture state (see "Polygon capture" section).
+  var lastClick = null;      // { lonlat:[lon,lat], point:[x,y], ts } — latest map click
+  var clickSeq = 0;          // increments on every map click
+  var polyDoneSeq = 0;       // clickSeq for which a polygon was already attached
+  var envelopeCand = null;   // { bbox, ts } — envelope seen before its record existed
+  var clickCands = [];       // [{ geom, src, nib, ts }] — polygons seen since the last click
+  var lastTouched = null;    // { key, ts } — record created/updated most recently
+  var scanUntil = 0;         // JSON.parse hook scans results until this timestamp
+  var lastProbe = null;
+  var payloadLog = [];       // last decrypted JSON payloads parsed right after a click (for diagnosis)
 
   var store = loadJson(STORE_KEY, {});      // { dedupKey: feature }
   var searches = loadJson(SEARCH_KEY, []);  // [{ q, ts }]
@@ -155,8 +166,10 @@
     var tipe = pick(rawProps, FIELD_PATTERNS.tipe_hak);
     var cls = classifyHak(tipe);
     // No geometry? Use the latest click coordinates (from the getPersil request) if still recent.
+    var geomSource = geometry ? source : '';
     if (!geometry && pendingCoord && (Date.now() - pendingCoord.ts) < 8000) {
       geometry = { type: 'Point', coordinates: pendingCoord.lonlat };
+      geomSource = 'click';
       pendingCoord = null; // use once to avoid assigning them to another parcel
     }
     var cen = centroidOf(geometry);
@@ -175,6 +188,7 @@
         lat: cen ? cen[1] : '',
         search_term: lastSearch,
         source: source,
+        geom_source: geomSource,
         recorded_at: new Date().toISOString(),
         raw: rawProps || {}
       }
@@ -200,9 +214,26 @@
   // Recording entry point.
   function record(rawProps, geometry, source) {
     if (!cfg.recording) return;
+    // Preserve main's envelope and area checks on the newly added capture paths.
+    var boundaryBox = null;
+    if (isPolygon(geometry) && /^(peta-json|peta-highlight)$/.test(source)) {
+      geometry = fixGeom(geometry);
+      if (geometry && geometryRank(geometry) !== 3) geometry = null;
+      if (geometry && isEnvelope(geometry)) {
+        boundaryBox = bboxOf(geometry);
+        geometry = null;
+      }
+      if (geometry) {
+        var saved = store['nib:' + pick(rawProps, FIELD_PATTERNS.nib)];
+        var area = luasOf({ luas: pick(rawProps, FIELD_PATTERNS.luas) || (saved && saved.properties.luas) });
+        var ratio = area ? geoAreaM2(geometry) / area : null;
+        if (area && (ratio < AREA_MIN || ratio > AREA_MAX)) geometry = null;
+      }
+    }
     var feature;
     try { feature = normalize(rawProps, geometry, source); } catch (e) { log('normalize gagal', e); return; }
     if (!meaningful(feature)) { log('dilewati (tak ada atribut relevan)', source, rawProps); return; }
+    if (boundaryBox) feature.properties.bbox = boundaryBox;
 
     var key = dedupKey(feature);
     var existed = !!store[key];
@@ -217,6 +248,9 @@
     // Flag parcels that have ALREADY been recorded so the user recognizes a repeat visit.
     if (existed) lastRepeat = { nib: feature.properties.nib, kategori: feature.properties.kategori, ts: Date.now() };
 
+    lastTouched = { key: key, ts: Date.now() };
+    if (envelopeCand && lastClick && envelopeCand.ts >= lastClick.ts) { feature.properties.bbox = envelopeCand.bbox; envelopeCand = null; }
+    applyPolygon(); // attach a polygon captured for this click, if any
     persist();
     schedulePins(); // update markers on the BHUMI map
     log('REKAM', source, feature.properties.kategori, feature.properties.nib || '(tanpa NIB)', feature.properties.tipe_hak, feature);
@@ -226,6 +260,7 @@
   // Merge two features with the same NIB: retain nonempty values + available geometry,
   // then recalculate the rights classification. This lets an unknown entry be
   // updated when right-type data arrives (e.g. from a rating_layer URL).
+  function isPolygon(g) { return !!g && (g.type === 'Polygon' || g.type === 'MultiPolygon'); }
   function mergeFeatures(oldF, newF) {
     var op = oldF.properties, np = newF.properties;
     function prefer(a, b) { return (a != null && String(a).trim() !== '') ? a : b; }
@@ -233,7 +268,10 @@
     var cls = classifyHak(tipe);
     // A URL/DOM record often arrives before the decoded parcel polygon.
     // Upgrade points to boundaries, but never downgrade a saved boundary.
-    var geom = geometryRank(newF.geometry) >= geometryRank(oldF.geometry) ? newF.geometry || oldF.geometry : oldF.geometry;
+    var useNew = !!newF.geometry && geometryRank(newF.geometry) >= geometryRank(oldF.geometry);
+    var geom = useNew ? newF.geometry : (oldF.geometry || newF.geometry);
+    var geomSource = useNew ? np.geom_source : prefer(op.geom_source, np.geom_source);
+    var areaRatio = useNew ? np.poly_area_ratio : prefer(op.poly_area_ratio, np.poly_area_ratio);
     var cen = centroidOf(geom);
     var src = op.source === np.source ? op.source
       : (String(op.source || '').split('+').indexOf(np.source) >= 0 ? op.source : (op.source + '+' + np.source));
@@ -249,6 +287,9 @@
         lat: cen ? cen[1] : prefer(np.lat, op.lat),
         search_term: prefer(np.search_term, op.search_term),
         source: src,
+        geom_source: geomSource || '',
+        poly_area_ratio: areaRatio == null ? '' : areaRatio,
+        bbox: np.bbox || op.bbox,
         recorded_at: np.recorded_at,
         raw: Object.assign({}, op.raw, np.raw)
       }
@@ -276,22 +317,6 @@
       record(p, f.geometry || null, source);
     });
   }
-
-  try {
-    var originalParse = JSON.parse;
-    var readingDecoded = false;
-    JSON.parse = function () {
-      var data = originalParse.apply(this, arguments);
-      if (!readingDecoded && cfg.recording && data && typeof data === 'object' &&
-          (data.type === 'Feature' || Array.isArray(data.features))) {
-        readingDecoded = true;
-        try { ingestDecodedFeatures(data, 'peta-json'); }
-        catch (e) { log('baca GeoJSON aplikasi gagal', e); }
-        finally { readingDecoded = false; }
-      }
-      return data;
-    };
-  } catch (e) { log('gagal mengamati GeoJSON aplikasi', e); }
 
   // Accept any JSON payload and extract its features.
   function ingestJson(url, data, source) {
@@ -425,10 +450,11 @@
         var promise = _fetch.apply(this, arguments);
         try {
           var url = (input && input.url) ? input.url : String(input || '');
-          if (/getpersil/i.test(url)) sniffCoordFromRequest(input, init); // read click coordinates
+          if (/getpersil/i.test(url)) { scanUntil = Date.now() + 6000; sniffCoordFromRequest(input, init); } // read click coordinates
           if (looksLikeParcelUrl(url)) {
             ingestUrlParams(url, 'peta'); // read tipehak/nib/luas from the URL query
             promise.then(function (res) {
+              try { if (cfg.debug && /getpersil/i.test(url)) logRawResponse(url, res.clone().text()); } catch (e) {}
               try {
                 var ct = (res.headers && res.headers.get) ? (res.headers.get('content-type') || '') : '';
                 if (/json/i.test(ct)) {
@@ -456,13 +482,14 @@
     };
     XMLHttpRequest.prototype.send = function (body) {
       var self = this;
-      try { if (/getpersil/i.test(self.__bhumiUrl || '')) { if (cfg.debug) log('req getPersil (xhr body):', body); handleCoordBody(body); } } catch (e) {}
+      try { if (/getpersil/i.test(self.__bhumiUrl || '')) { scanUntil = Date.now() + 6000; if (cfg.debug) log('req getPersil (xhr body):', body); handleCoordBody(body); } } catch (e) {}
       try {
         if (looksLikeParcelUrl(self.__bhumiUrl)) {
           ingestUrlParams(self.__bhumiUrl, 'peta'); // read tipehak/nib/luas from the URL query
           self.addEventListener('load', function () {
             try {
               var txt = self.responseText;
+              if (cfg.debug && /getpersil/i.test(self.__bhumiUrl || '')) logRawResponse(self.__bhumiUrl, txt);
               if (!txt) return;
               var ct = (self.getResponseHeader && self.getResponseHeader('content-type')) || '';
               if (/json/i.test(ct) || /^\s*[\[{]/.test(txt)) {
@@ -599,7 +626,16 @@
     try {
       if (typeof m.on === 'function') {
         m.on('click', function (e) {
-          try { if (e && e.lngLat) setPendingCoord([e.lngLat.lng, e.lngLat.lat], 'peta-klik'); } catch (er) {}
+          try {
+            if (e && e.lngLat) {
+              setPendingCoord([e.lngLat.lng, e.lngLat.lat], 'peta-klik');
+              lastClick = { lonlat: [e.lngLat.lng, e.lngLat.lat], point: e.point ? [e.point.x, e.point.y] : null, ts: Date.now() };
+              clickSeq++;
+              clickCands = [];
+              scanUntil = Math.max(scanUntil, Date.now() + 6000);
+              scheduleMapCapture();
+            }
+          } catch (er) {}
           captureHighlight();
         });
         m.on('sourcedata', function (e) {
@@ -750,6 +786,350 @@
       try { var m = findMapViaFiber(); if (m) { bindMap(m); clearInterval(iv); return; } } catch (e) {}
       if (tries > 80) { clearInterval(iv); log('peta tak terdeteksi — penanda tetap tersedia di viewer.html'); }
     }, 750);
+  }
+
+
+  // =====================================================================
+  // Polygon capture
+  // ---------------------------------------------------------------------
+  // BHUMI draws the selected parcel as a polygon, so the boundary exists in
+  // the browser even though the getPersil body is not plain GeoJSON. We look
+  // for it in three places after every map click, and attach the first
+  // polygon that CONTAINS the click point to the record that click created:
+  //   1. the plaintext JSON the app parses right after the getPersil call
+  //      (JSON.parse hook, active only for a few seconds after a click),
+  //   2. GeoJSON sources already on the map (e.g. a selection/highlight layer),
+  //   3. map.queryRenderedFeatures() at the click point (vector-tile polygons).
+  // Use __BHUMI_REC__.probe() (or Debug ON) to see which one delivers.
+  // =====================================================================
+  function mapPos(pt) {
+    var x = pt[0], y = pt[1];
+    if (Math.abs(x) > 180 || Math.abs(y) > 90) { // EPSG:3857 metres → degrees
+      var R = 6378137;
+      x = x / R * 180 / Math.PI;
+      y = (2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * 180 / Math.PI;
+    }
+    return normalizeLonLat(x, y); // also fixes swapped lat/lon; null when implausible
+  }
+  function mapCoords(a) {
+    if (!Array.isArray(a)) return null;
+    if (typeof a[0] === 'number') return mapPos(a);
+    var out = [];
+    for (var i = 0; i < a.length; i++) { var r = mapCoords(a[i]); if (!r) return null; out.push(r); }
+    return out;
+  }
+  function fixGeom(g) {
+    if (!isPolygon(g) || !Array.isArray(g.coordinates)) return null;
+    var c = mapCoords(g.coordinates);
+    return c ? { type: g.type, coordinates: c } : null;
+  }
+
+  function ringHas(ring, x, y) {
+    var inside = false;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      var xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+  function polyHas(rings, x, y) {
+    if (!rings.length || !ringHas(rings[0], x, y)) return false;
+    for (var i = 1; i < rings.length; i++) if (ringHas(rings[i], x, y)) return false; // inside a hole
+    return true;
+  }
+  function geomHas(g, x, y) {
+    if (g.type === 'Polygon') return polyHas(g.coordinates, x, y);
+    return g.coordinates.some(function (p) { return polyHas(p, x, y); });
+  }
+  function geomArea(g) { // rough planar area of the outer rings (only used to rank candidates)
+    var polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates, a = 0;
+    polys.forEach(function (rings) {
+      var r = rings[0], s = 0;
+      for (var i = 0, j = r.length - 1; i < r.length; j = i++) s += r[j][0] * r[i][1] - r[i][0] * r[j][1];
+      a += Math.abs(s / 2);
+    });
+    return a;
+  }
+  function vertexCount(g) { return collectCoords(g).length; }
+
+  // Minimal WKT reader (POLYGON / MULTIPOLYGON) for payloads that carry a "geom" string.
+  function parseWKT(t) {
+    var m = /^\s*(?:SRID=\d+;)?\s*(MULTIPOLYGON|POLYGON)\s*(?:Z\s*)?\(([\s\S]*)\)\s*$/i.exec(t);
+    if (!m) return null;
+    function ring(str) {
+      return str.split(',').map(function (p) { var n = p.trim().split(/\s+/).map(parseFloat); return [n[0], n[1]]; });
+    }
+    function poly(str) { // "(x y,x y),(x y,x y)"
+      return str.split(/\)\s*,\s*\(/).map(function (r) { return ring(r.replace(/[()]/g, '')); });
+    }
+    try {
+      if (/^MULTI/i.test(m[1])) {
+        var parts = m[2].split(/\)\s*\)\s*,\s*\(\s*\(/).map(function (p) { return poly(p.replace(/^\s*\(\s*\(|\)\s*\)\s*$/g, '')); });
+        return { type: 'MultiPolygon', coordinates: parts };
+      }
+      return { type: 'Polygon', coordinates: poly(m[2].replace(/^\s*\(|\)\s*$/g, '')) };
+    } catch (e) { return null; }
+  }
+
+  // Collect polygon candidates from any JSON-ish value: [{ geom, via, props }]
+  function polysIn(o, via, out, budget) {
+    out = out || []; budget = budget || { n: 0 };
+    (function walk(v, props, depth) {
+      if (v == null || depth > 8 || budget.n++ > 20000) return;
+      if (typeof v === 'string') {
+        var t = v.trim();
+        if (/^(SRID=\d+;)?\s*(MULTI)?POLYGON/i.test(t)) { var w = parseWKT(t); if (w) out.push({ geom: w, via: via + ':wkt', props: props }); }
+        else if (t.charAt(0) === '{' && t.indexOf('"coordinates"') > 0 && t.length < 2e6) {
+          try { walk((_parse || JSON.parse)(t), props, depth + 1); } catch (e) {}
+        }
+        return;
+      }
+      if (typeof v !== 'object') return;
+      if (Array.isArray(v)) { for (var i = 0; i < v.length; i++) walk(v[i], props, depth + 1); return; }
+      if ((v.type === 'Polygon' || v.type === 'MultiPolygon') && Array.isArray(v.coordinates)) {
+        out.push({ geom: v, via: via, props: props }); return;
+      }
+      var p = (v.properties && typeof v.properties === 'object') ? v.properties : (v.attributes && typeof v.attributes === 'object' ? v.attributes : props);
+      Object.keys(v).forEach(function (k) { walk(v[k], k === 'properties' || k === 'attributes' ? props : p, depth + 1); });
+    })(o, null, 0);
+    return out;
+  }
+
+  function nibOf(props) { return props ? pick(props, FIELD_PATTERNS.nib) : ''; }
+
+  // Approximate polygon area in m² (local equirectangular projection; good enough for parcels).
+  function geoAreaM2(g) {
+    var pts = collectCoords(g);
+    if (!pts.length) return 0;
+    var lat0 = 0, lon0 = 0;
+    pts.forEach(function (p) { lon0 += p[0]; lat0 += p[1]; });
+    lon0 /= pts.length; lat0 /= pts.length;
+    var kx = 111320 * Math.cos(lat0 * Math.PI / 180), ky = 110574;
+    function ringArea(r) {
+      var s = 0;
+      for (var i = 0, j = r.length - 1; i < r.length; j = i++) {
+        s += ((r[j][0] - lon0) * kx) * ((r[i][1] - lat0) * ky) - ((r[i][0] - lon0) * kx) * ((r[j][1] - lat0) * ky);
+      }
+      return Math.abs(s / 2);
+    }
+    var polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates, a = 0;
+    polys.forEach(function (rings) {
+      rings.forEach(function (r, i) { a += (i ? -1 : 1) * ringArea(r); });
+    });
+    return a;
+  }
+  function luasOf(props) {
+    var n = parseFloat(String((props && props.luas) || '').replace(/\./g, '').replace(',', '.'));
+    return isFinite(n) && n > 0 ? n : 0;
+  }
+  // The recorded area (luas, m²) is the best test that a polygon IS the parcel and not a
+  // zone, map sheet or bbox rectangle that merely contains the click.
+  var AREA_MIN = 0.75, AREA_MAX = 1.3;
+
+  // BHUMI also returns the parcel ENVELOPE (an axis-aligned rectangle). It is not the boundary:
+  // keep it as a `bbox` property, never as the polygon.
+  function isEnvelope(g) {
+    if (g.type !== 'Polygon' || g.coordinates.length !== 1) return false;
+    var r = g.coordinates[0];
+    if (r.length === 5 && r[0][0] === r[4][0] && r[0][1] === r[4][1]) r = r.slice(0, 4);
+    if (r.length !== 4) return false;
+    var eps = 1e-9;
+    for (var i = 0; i < 4; i++) {
+      var a = r[i], b = r[(i + 1) % 4];
+      if (Math.abs(a[0] - b[0]) > eps && Math.abs(a[1] - b[1]) > eps) return false;
+    }
+    return true;
+  }
+  function bboxOf(g) {
+    var pts = collectCoords(g), x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    pts.forEach(function (p) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); });
+    return [x0, y0, x1, y1].map(function (v) { return Math.round(v * 1e7) / 1e7; });
+  }
+
+  // Keep valid polygons that contain the last click: [{ geom, via, nib }]
+  function acceptable(cands) {
+    var click = lastClick && lastClick.lonlat, out = [];
+    cands.forEach(function (c) {
+      var g = fixGeom(c.geom);
+      if (!g) { log('poligon ditolak (koordinat tak wajar)', c.via, JSON.stringify(collectCoords(c.geom).slice(0, 2))); return; }
+      if (click && !geomHas(g, click[0], click[1])) { log('poligon ditolak (tak memuat titik klik)', c.via, vertexCount(g) + ' titik'); return; }
+      out.push({ geom: g, via: c.via, nib: nibOf(c.props), envelope: isEnvelope(g) });
+    });
+    return out;
+  }
+
+  function offerPolygons(cands, src) {
+    var ok = acceptable(cands);
+    var real = 0;
+    ok.forEach(function (c) {
+      log('kandidat poligon', src + ':' + c.via, vertexCount(c.geom) + ' titik', Math.round(geoAreaM2(c.geom)) + ' m²', c.envelope ? '(persegi pembatas / bbox, bukan batas bidang)' : '');
+      if (c.envelope) { // remember the envelope on the record, but do not use it as the boundary
+        var rec = lastTouched && store[lastTouched.key];
+        if (rec && (!lastClick || lastTouched.ts >= lastClick.ts)) { rec.properties.bbox = bboxOf(c.geom); persist(); }
+        else envelopeCand = { bbox: bboxOf(c.geom), ts: Date.now() };
+        return;
+      }
+      real++;
+      clickCands.push({ geom: c.geom, src: src + (c.via ? ':' + c.via : ''), nib: c.nib, ts: Date.now() });
+    });
+    if (real) applyPolygon();
+    return real > 0;
+  }
+
+  // Attach the best polygon seen for the latest click to the record that click created/updated.
+  function applyPolygon() {
+    if (!clickCands.length || !lastTouched) return;
+    if (lastClick && lastTouched.ts < lastClick.ts) return; // record belongs to an earlier click
+    var f = store[lastTouched.key];
+    if (!f) return;
+    var luas = luasOf(f.properties), nib = f.properties.nib || '';
+    var scored = clickCands.map(function (c) {
+      var area = geoAreaM2(c.geom), ratio = luas ? area / luas : null;
+      return { c: c, area: area, ratio: ratio, err: ratio ? Math.abs(Math.log(ratio)) : null, nibMatch: !!(c.nib && c.nib === nib) };
+    });
+    var ok = luas ? scored.filter(function (x) { return x.ratio >= AREA_MIN && x.ratio <= AREA_MAX; }) : scored;
+    if (!ok.length) { log('poligon ditolak: luas tak cocok dengan', luas + ' m²', scored.map(function (x) { return Math.round(x.area) + ' m² @' + x.c.src; })); return; }
+    ok.sort(function (a, b) {
+      if (a.nibMatch !== b.nibMatch) return a.nibMatch ? -1 : 1;
+      return luas ? a.err - b.err : a.area - b.area;
+    });
+    var best = ok[0];
+    if (isPolygon(f.geometry)) { // only replace an existing boundary with a clearly better area match
+      var ex = luas ? Math.abs(Math.log(geoAreaM2(f.geometry) / luas)) : 0;
+      if (!(luas && best.err < ex - 0.05)) { polyDoneSeq = clickSeq; return; }
+    }
+    var cen = centroidOf(best.c.geom);
+    f.geometry = best.c.geom;
+    f.properties.geom_source = best.c.src;
+    f.properties.poly_area_ratio = best.ratio ? Math.round(best.ratio * 1000) / 1000 : '';
+    if (cen) { f.properties.lon = cen[0]; f.properties.lat = cen[1]; }
+    persist(); schedulePins(); schedulePanel();
+    polyDoneSeq = clickSeq;
+    log('POLIGON terpasang', nib, best.c.src, vertexCount(best.c.geom) + ' titik', Math.round(best.area) + ' m²', luas ? 'rasio luas ' + best.ratio.toFixed(2) : '');
+  }
+
+  // Compact structure summary of a parsed payload (debug aid; strings are truncated).
+  function shapeOf(v, d) {
+    if (v == null || typeof v !== 'object') return typeof v === 'string' ? JSON.stringify(v.slice(0, 40)) + (v.length > 40 ? '…(' + v.length + ')' : '') : String(v);
+    if (d <= 0) return Array.isArray(v) ? '[…' + v.length + ']' : '{…}';
+    if (Array.isArray(v)) return '[' + v.length + '×' + (v.length ? shapeOf(v[0], d - 1) : '') + ']';
+    return '{' + Object.keys(v).slice(0, 14).map(function (k) { return k + ':' + shapeOf(v[k], d - 1); }).join(', ') + '}';
+  }
+
+  // JSON.parse hook: the app decrypts getPersil and parses the plaintext; look inside it.
+  var inScan = false;
+  try {
+    var _parse = JSON.parse;
+    JSON.parse = function () {
+      var r = _parse.apply(this, arguments);
+      if (!inScan && cfg.recording && r && typeof r === 'object' &&
+          (r.type === 'Feature' || Array.isArray(r.features))) {
+        inScan = true;
+        try { ingestDecodedFeatures(r, 'peta-json'); }
+        catch (e) { log('baca GeoJSON aplikasi gagal', e); }
+        finally { inScan = false; }
+      }
+      if (!inScan && Date.now() < scanUntil && r && typeof r === 'object') {
+        inScan = true;
+        try {
+          var txt0 = typeof arguments[0] === 'string' ? arguments[0] : '';
+          if (txt0.length > 30) { payloadLog.push({ t: new Date().toISOString(), chars: txt0.length, json: txt0.slice(0, 30000) }); if (payloadLog.length > 15) payloadLog.shift(); }
+          var cands = polysIn(r, 'json');
+          if (cfg.debug) log('JSON.parse (' + String(arguments[0] == null ? '' : arguments[0]).length + ' kar) bentuk:', shapeOf(r, 4).slice(0, 700));
+          if (cands.length) { log('JSON.parse berisi ' + cands.length + ' poligon'); offerPolygons(cands, 'json'); }
+        } catch (e) {}
+        inScan = false;
+      }
+      return r;
+    };
+  } catch (e) { log('gagal hook JSON.parse', e); }
+
+  function logRawResponse(url, p) {
+    Promise.resolve(p).then(function (t) {
+      t = String(t == null ? '' : t);
+      log('res getPersil:', t.length + ' karakter', t.slice(0, 200));
+    }).catch(function () {});
+  }
+
+  // Polygon candidates from the map itself: GeoJSON sources + features rendered at the click point.
+  function mapCandidates() {
+    var m = mapInst, out = [];
+    if (!m) return out;
+    try {
+      var st = m.getStyle && m.getStyle();
+      Object.keys((st && st.sources) || {}).forEach(function (id) {
+        if (id === PIN_SRC) return;
+        try {
+          var s = m.getSource(id);
+          if (!s || s.type !== 'geojson') return;
+          var d = s._data;
+          if (!d && typeof s.serialize === 'function') d = s.serialize().data;
+          if (d && typeof d === 'object') polysIn(d, 'source:' + id, out);
+        } catch (e) {}
+      });
+    } catch (e) {}
+    try {
+      if (lastClick && lastClick.point && typeof m.queryRenderedFeatures === 'function') {
+        m.queryRenderedFeatures(lastClick.point).forEach(function (f) {
+          var lid = f.layer && f.layer.id;
+          if (lid === PIN_DOT || lid === PIN_HALO) return;
+          var g = f.geometry;
+          if (isPolygon(g)) out.push({ geom: g, via: 'layer:' + lid, props: f.properties });
+        });
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  function scheduleMapCapture() {
+    var seq = clickSeq;
+    [400, 1000, 2000, 4000].forEach(function (ms) {
+      setTimeout(function () {
+        if (seq !== clickSeq || polyDoneSeq === seq || !mapInst) return;
+        offerPolygons(mapCandidates(), 'map');
+      }, ms);
+    });
+    if (cfg.debug) setTimeout(function () { if (seq === clickSeq) probe(); }, 1500);
+  }
+
+  // Diagnostic report: what does the map hold around the last click? Run from the Console
+  // (select a parcel first): __BHUMI_REC__.probe()
+  function probe() {
+    var m = mapInst, rep = { click: lastClick, sources: [], layers: [], rendered: [], candidates: [] };
+    if (!m) { log('probe: peta belum terhubung'); return rep; }
+    try {
+      var st = m.getStyle();
+      Object.keys(st.sources || {}).forEach(function (id) {
+        var s = st.sources[id] || {}, live = null, n = null;
+        try { live = m.getSource(id); } catch (e) {}
+        try {
+          var d = live && (live._data || (live.serialize && live.serialize().data));
+          if (d && typeof d === 'object') n = polysIn(d, id).length;
+        } catch (e) {}
+        rep.sources.push({ id: id, type: s.type, url: s.url || (s.tiles && s.tiles[0]) || '', polygons: n });
+      });
+      (st.layers || []).forEach(function (l) {
+        rep.layers.push({ id: l.id, type: l.type, source: l.source, sourceLayer: l['source-layer'] || '' });
+      });
+    } catch (e) { rep.error = String(e); }
+    try {
+      if (lastClick && lastClick.point) {
+        m.queryRenderedFeatures(lastClick.point).forEach(function (f) {
+          rep.rendered.push({
+            layer: f.layer && f.layer.id, source: f.source, sourceLayer: f.sourceLayer,
+            geom: f.geometry && f.geometry.type, vertices: f.geometry ? vertexCount(f.geometry) : 0,
+            props: Object.keys(f.properties || {}).slice(0, 12)
+          });
+        });
+      }
+    } catch (e) { rep.renderedError = String(e); }
+    mapCandidates().forEach(function (c) {
+      var g = fixGeom(c.geom);
+      rep.candidates.push({ via: c.via, nib: nibOf(c.props), valid: !!g, containsClick: !!(g && lastClick && geomHas(g, lastClick.lonlat[0], lastClick.lonlat[1])), vertices: g ? vertexCount(g) : 0 });
+    });
+    lastProbe = rep;
+    log('PROBE (salin hasil ini): ', JSON.stringify(rep));
+    return rep;
   }
 
   // =====================================================================
@@ -1075,7 +1455,8 @@
     // Large total count
     var big = el('div', 'font:800 28px system-ui;line-height:1', String(c.total));
     body.appendChild(big);
-    body.appendChild(el('div', 'color:#666;font-size:11px;margin-bottom:10px', 'bidang terekam'));
+    body.appendChild(el('div', 'color:#666;font-size:11px;margin-bottom:10px',
+      'bidang terekam · ' + features().filter(function (f) { return isPolygon(f.geometry); }).length + ' dengan poligon'));
 
     if (c.total) {
       var boundaryCount = features().filter(function (f) { return geometryRank(f.geometry) === 3; }).length;
@@ -1200,6 +1581,10 @@
     breakdown: breakdownByType,
     cleanup: function () { var r = cleanupStore(); renderPins(); renderPanel(); return r; },
     mapConnected: mapConnected,
+    map: function () { return mapInst; },
+    probe: probe,
+    lastProbe: function () { return lastProbe; },
+    payloads: function () { return payloadLog; },
     clear: function () { highlightRead++; store = {}; lastRepeat = null; persist(); renderPins(); renderPanel(); }
   };
 
