@@ -40,7 +40,7 @@ const geomOf = (api, nib) => JSON.parse(api.geojson()).features.find(f => f.prop
 
 // 1. Click → polygon from rendered features (smallest containing, ignoring non-containing) replaces the click point.
 {
-  const zone = feat(square(116.17, -8.88, 0.05)), parcel = feat(square(116.1672, -8.8795, 0.0005)), far = feat(square(116.2, -8.9, 0.0005));
+  const zone = feat(square(116.17, -8.88, 0.05)), parcel = feat(square(116.1672, -8.8795, 0.000377)), far = feat(square(116.2, -8.9, 0.0005));
   parcel.layer.id = 'bidang'; zone.layer.id = 'zona'; far.layer.id = 'bidang';
   const t = setup({ layers: [zone, far, parcel] });
   t.click(116.167192, -8.879492);
@@ -57,7 +57,7 @@ const geomOf = (api, nib) => JSON.parse(api.geojson()).features.find(f => f.prop
 {
   const stored = { 'nib:02655': { type: 'Feature', geometry: { type: 'Point', coordinates: [116.167192, -8.879492] },
     properties: { nib: '02655', tipe_hak: 'Hak Guna Bangunan', kategori: 'Hak lain', warna: '#e6a010', lon: 116.167192, lat: -8.879492, source: 'peta', raw: {} } } };
-  const t = setup({ stored, layers: [feat(square(116.1672, -8.8795, 0.0005))] });
+  const t = setup({ stored, layers: [feat(square(116.1672, -8.8795, 0.000377))] });
   t.click(116.167192, -8.879492); t.parcelFetch('02655'); t.flush();
   assert.equal(geomOf(t.api, '02655').geometry.type, 'Polygon');
   const first = JSON.stringify(geomOf(t.api, '02655').geometry);
@@ -67,19 +67,19 @@ const geomOf = (api, nib) => JSON.parse(api.geojson()).features.find(f => f.prop
 // 3. GeoJSON source (selection highlight) is used, including EPSG:3857 coordinates.
 {
   const R = 6378137, mx = lon => lon * Math.PI / 180 * R, my = lat => Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)) * R;
-  const ring = [[116.1667, -8.8800], [116.1677, -8.8800], [116.1677, -8.8790], [116.1667, -8.8790], [116.1667, -8.8800]].map(([x, y]) => [mx(x), my(y)]);
+  const ring = [[116.16682, -8.87988], [116.16758, -8.87988], [116.16758, -8.87912], [116.16682, -8.87912], [116.16682, -8.87988]].map(([x, y]) => [mx(x), my(y)]);
   const src = { type: 'geojson', _data: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } }] } };
   const t = setup({ sources: { selected: src } });
   t.click(116.167192, -8.879492); t.parcelFetch('09999'); t.flush();
   const f = geomOf(t.api, '09999');
   assert.equal(f.geometry.type, 'Polygon');
-  assert.ok(Math.abs(f.geometry.coordinates[0][0][0] - 116.1667) < 1e-6, 'reprojected to lon/lat');
+  assert.ok(Math.abs(f.geometry.coordinates[0][0][0] - 116.16682) < 1e-6, 'reprojected to lon/lat');
   assert.equal(f.properties.geom_source, 'map:source:selected');
 }
 // 4. Plaintext parsed by the app right after getPersil (GeoJSON string and WKT) is captured via JSON.parse.
 for (const payload of [
-  JSON.stringify({ data: { geometry: square(116.1672, -8.8795, 0.0005) } }),
-  JSON.stringify({ result: [{ nib: '07777', geom: 'POLYGON((116.1667 -8.8800,116.1677 -8.8800,116.1677 -8.8790,116.1667 -8.8790,116.1667 -8.8800))' }] })
+  JSON.stringify({ data: { geometry: square(116.1672, -8.8795, 0.000377) } }),
+  JSON.stringify({ result: [{ nib: '07777', geom: 'POLYGON((116.16682 -8.87988,116.16758 -8.87988,116.16758 -8.87912,116.16682 -8.87912,116.16682 -8.87988))' }] })
 ]) {
   const t = setup();
   t.window.fetch('https://bhumi.atrbpn.go.id/expapi/getPersil', { method: 'POST', body: '{}' });
@@ -96,4 +96,20 @@ for (const payload of [
   t.click(116.167192, -8.879492); t.parcelFetch('01111'); t.flush();
   assert.equal(geomOf(t.api, '01111').geometry.type, 'Point');
 }
-console.log('Passed: polygon capture from rendered features, GeoJSON sources (3857), JSON.parse/WKT, click-containment, point→polygon upgrade, no overwrite.');
+// 6. Area check: a rectangle that contains the click but is not parcel-sized is rejected; the right one wins,
+//    and a previously stored wrong polygon is replaced when a better match arrives.
+{
+  const big = feat(square(116.1672, -8.8795, 0.002)); big.layer.id = 'index';
+  const right = feat(square(116.1672, -8.8795, 0.000377)); right.layer.id = 'bidang';
+  const t = setup({ layers: [big] });
+  t.click(116.167192, -8.879492); t.parcelFetch('05555'); t.flush();
+  assert.equal(geomOf(t.api, '05555').geometry.type, 'Point', 'wrong-size polygon is not attached');
+  const stored = { 'nib:05555': { type: 'Feature', geometry: big.geometry, properties: { nib: '05555', tipe_hak: 'Hak Milik', kategori: 'Hak Milik', is_hak_milik: true,
+    warna: '#1a9850', luas: '6930', lon: 116.1672, lat: -8.8795, source: 'peta', raw: {} } } };
+  const t2 = setup({ stored, layers: [big, right] });
+  t2.click(116.167192, -8.879492); t2.parcelFetch('05555'); t2.flush();
+  const f = geomOf(t2.api, '05555');
+  assert.equal(f.properties.geom_source, 'map:layer:bidang');
+  assert.ok(Math.abs(f.properties.poly_area_ratio - 1) < 0.1, 'area ratio recorded: ' + f.properties.poly_area_ratio);
+}
+console.log('Passed: polygon capture from rendered features, GeoJSON sources (3857), JSON.parse/WKT, click-containment, point→polygon upgrade, no overwrite, luas/area check.');
